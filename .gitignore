@@ -1,6 +1,5 @@
 *.hi
 *.o
-PazLexer
+Paz
 PazLexerTest
-PazParser
 PazParserTest

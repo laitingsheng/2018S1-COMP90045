@@ -636,10 +636,6 @@ parseProcedureDeclarationPart =
 
 -- your code starts here
 
--- the following is a dummy implementation that you can delete
--- the dummy implementation simply scans and skips tokens between BEGIN and
--- END (it also skips anything that looks like a nested BEGIN and END block)
-
 type ASTStatement = Statement
 data Statement =
     AssignmentStatement ASTAssignmentStatement |
