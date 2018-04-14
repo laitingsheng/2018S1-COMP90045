@@ -249,6 +249,7 @@ printFactor para f =
         -- this means a "not" is parsed previously
         Factor f -> do
             putStr "not "
+            -- force paranthesis if it is expression
             printFactor True f
 
         -- need of paranthesis determined by the parameter
