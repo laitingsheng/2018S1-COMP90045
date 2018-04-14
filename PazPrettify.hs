@@ -189,21 +189,21 @@ printUnsignedNumber un =
             printUnsignedReal ur
 
 printCharacterString :: ASTCharacterString -> IO ()
-printCharacterString cs = do
-    putChar q
-    putStr cs
-    putChar q
-    where
-        -- determine if single quotation mark is in the string
-        q = if any (== '\'') cs then '"' else '\''
+printCharacterString (x:xs) = do
+    if x == '\'' then putStr "''" else putChar x
+    printCharacterString xs
+printCharacterString [] =
+    return ()
 
 printUnsignedConstant :: ASTUnsignedConstant -> IO ()
 printUnsignedConstant uc =
     case uc of
         UnsignedNumber un ->
             printUnsignedNumber un
-        CharacterString cs ->
+        CharacterString cs -> do
+            putChar '\''
             printCharacterString cs
+            putChar '\''
 
 printRelationalOperator :: ASTRelationalOperator -> IO ()
 printRelationalOperator ro =
