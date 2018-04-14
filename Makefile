@@ -3,7 +3,7 @@ COptions = -O2 -Wall -XPackageImports
 EXE      = Paz
 OBJ      = Paz.hs
 
-$(EXE): $(OBJ)
+$(EXE): $(OBJ) PazLexer.hs PazParser.hs
 	$(CC) $(COptions) -o $(EXE) $(OBJ)
 
 clean:
