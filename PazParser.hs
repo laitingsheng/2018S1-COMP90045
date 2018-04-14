@@ -770,7 +770,24 @@ parseWhileStatement =
             return (x0, x1)
         )
 
-type ASTForStatement = (ASTIdentifier, ASTExpression, ASTExpression, ASTStatement)
+type ASTForRangeOperator = ForRangeOperator
+data ForRangeOperator =
+    To |
+    DownTo
+    deriving Show
+parseForRangeOperator :: Parser ASTForRangeOperator
+parseForRangeOperator =
+    trace "parseForRangeOperator" (choice [
+        try (do
+            parseTokenTo
+            return To
+            ),
+        do
+            parseTokenDownTo
+            return DownTo
+    ])
+
+type ASTForStatement = (ASTIdentifier, ASTExpression, ASTForRangeOperator, ASTExpression, ASTStatement)
 parseForStatement :: Parser ASTForStatement
 parseForStatement =
     trace "parseForStatement" (
@@ -779,14 +796,11 @@ parseForStatement =
             x0 <- parseIdentifier
             parseTokenAssign
             x1 <- parseExpression
-            choice [
-                try parseTokenTo,
-                parseTokenDownTo
-                ]
-            x2 <- parseExpression
+            x2 <- parseForRangeOperator
+            x3 <- parseExpression
             parseTokenDo
-            x3 <- parseStatement
-            return (x0, x1, x2, x3)
+            x4 <- parseStatement
+            return (x0, x1, x2, x3, x4)
         )
 
 type ASTExpression = (ASTSimpleExpression, Maybe (ASTRelationalOperator, ASTSimpleExpression))

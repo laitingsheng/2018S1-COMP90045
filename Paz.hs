@@ -21,7 +21,7 @@ tokenise text =
     case
         trace
              "*** Lexical analysis"
-             (parse PazLexer.parseStartSymbol "(stdin)" text)
+             (parse PazLexer.parseStartSymbol "(file)" text)
         of
         Left error ->
             die ("Lexical error:\n" ++ show error)
@@ -29,7 +29,7 @@ tokenise text =
             case
                 trace
                     "*** Syntax analysis"
-                    (parse PazParser.parseStartSymbol "(stdin)" tokens)
+                    (parse PazParser.parseStartSymbol "(file)" tokens)
                 of
                 Left error ->
                     die ("Syntax error:\n" ++ show error)

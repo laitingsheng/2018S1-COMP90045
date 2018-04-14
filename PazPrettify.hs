@@ -110,6 +110,7 @@ printProcedureDeclarationPart pdp = do
         -- one blank line between two procedures
         putChar '\n'
         printProcedureDeclaration pd
+        putStr ";\n"
         ) pdp)
 
 ----------
@@ -239,39 +240,43 @@ printVariableAccess va =
 printFactor :: Bool -> ASTFactor -> IO ()
 printFactor para f =
     case f of
-        -- regardless of True value of the parameter
+        -- no need to add paranthesis
         UnsignedConstant uc ->
             printUnsignedConstant uc
         VariableAccess va ->
             printVariableAccess va
 
+        -- this means a "not" is parsed previously
+        Factor f -> do
+            putStr "not "
+            printFactor True f
+
         -- need of paranthesis determined by the parameter
         Expression e -> do
             printExpression para e
-        Factor f ->
-            printFactor para f
 
 -- for (*, /, div, or) operators
-printTerm :: ASTTerm -> IO ()
-printTerm (f, mofs) = do
-    -- highest operator precedence, no paranthesis required
-    printFactor para f
+printTerm :: Bool -> ASTTerm -> IO ()
+printTerm para (f, mofs) = do
+    when para (putChar '(')
+    printFactor ipara f
     sequence_ (map printmof mofs)
+    when para (putChar ')')
     where
         -- if in a form of expression * expression, force paranthesis
-        para = notnull mofs
+        ipara = notnull mofs
         printmof (mo, f) = do
             putChar ' '
             printMultiplyingOperator mo
             putChar ' '
-            printFactor para f
+            printFactor ipara f
 
 -- for (+, -, or) operators
 printSimpleExpression :: Bool -> ASTSimpleExpression -> IO ()
 printSimpleExpression para (ms, t, aots) = do
     when para (putChar '(')
     when (isJust ms) (printParserSign (fromJust ms))
-    printTerm t
+    printTerm False t
     sequence_ (map printaot aots)
     when para (putChar ')')
     where
@@ -279,7 +284,7 @@ printSimpleExpression para (ms, t, aots) = do
             putChar ' '
             printAddingOperator ao
             putChar ' '
-            printTerm t
+            printTerm False t
 
 -- for relational operator
 printExpression :: Bool -> ASTExpression -> IO ()
@@ -306,7 +311,6 @@ printAssignmentStatement ind (va, e) = do
     printVariableAccess va
     putStr " := "
     printExpression False e
-    putChar '\n'
 
 printActualParameterList :: ASTActualParameterList -> IO ()
 printActualParameterList (e, es) = do
@@ -322,17 +326,19 @@ printProcedureStatement :: Int -> ASTProcedureStatement -> IO ()
 printProcedureStatement ind (pid, mapl) = do
     putStr (replicate ind ' ' ++ pid)
     when (isJust mapl) (printActualParameterList (fromJust mapl))
-    putChar '\n'
 
 printIfStatement :: Int -> ASTIfStatement -> IO ()
 printIfStatement ind (e, s, ms) = do
     let spaces = replicate ind ' '
-    putStr (spaces ++ "if ")
+    putStr spaces
+    putStr "if "
     printExpression False e
     putStrLn " then"
     printStatement (ind + 4) s
     when (isJust ms) (do
-        putStrLn (spaces ++ "else")
+        putChar '\n'
+        putStr spaces
+        putStrLn "else"
         printStatement (ind + 4) (fromJust ms)
         )
 
@@ -343,11 +349,21 @@ printWhileStatement ind (e, s) = do
     putStrLn " do"
     printStatement (ind + 4) s
 
+printForRangeOperator :: ASTForRangeOperator -> IO ()
+printForRangeOperator fro =
+    case fro of
+        To ->
+            putStr "to"
+        DownTo ->
+            putStr "downto"
+
 printForStatement :: Int -> ASTForStatement -> IO ()
-printForStatement ind (fid, e1, e2, s) = do
+printForStatement ind (fid, e1, fro, e2, s) = do
     putStr (replicate ind ' ' ++ "for " ++ fid ++ " := ")
     printExpression False e1
-    putStr " to "
+    putChar ' '
+    printForRangeOperator fro
+    putChar ' '
     printExpression False e2
     putStr " do\n"
     printStatement (ind + 4) s
@@ -360,6 +376,7 @@ printStatement ind s =
         ProcedureStatement ps ->
             printProcedureStatement ind ps
         CompoundStatement cs ->
+            -- begin should indent with previous
             printCompoundStatement (ind - 4) cs
         IfStatement is ->
             printIfStatement ind is
@@ -373,14 +390,21 @@ printStatement ind s =
 printStatementSequence :: Int -> ASTStatementSequence -> IO ()
 printStatementSequence ind (s, ss) = do
     printStatement ind s
-    sequence_ (map (printStatement ind) ss)
+    sequence_ (map (\s -> do
+        putStr ";\n"
+        printStatement ind s
+        ) ss)
 
 printCompoundStatement :: Int -> ASTCompoundStatement -> IO ()
 printCompoundStatement ind cs = do
-    let spaces = replicate ind ' '
-    putStrLn (spaces ++ "begin")
+    putStr spaces
+    putStrLn "begin"
     printStatementSequence (ind + 4) cs
-    putStrLn (spaces ++ "end")
+    putChar '\n'
+    putStr spaces
+    putStr "end"
+    where
+        spaces = replicate ind ' '
 
 -----
 
@@ -402,6 +426,6 @@ prettyPrint (pid, vdp, pdp, cs) = do
     -- compound statement
     putChar '\n'
     printCompoundStatement 0 cs
-    putChar '\n'
+    putStrLn ".\n"
 
 ---------
