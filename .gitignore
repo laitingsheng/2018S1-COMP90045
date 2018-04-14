@@ -1,5 +1,6 @@
 *.hi
 *.o
+.trace
 Paz
 PazLexerTest
 PazParserTest

@@ -789,29 +789,61 @@ parseForStatement =
             return (x0, x1, x2, x3)
         )
 
-type ASTExpression = (ASTSimpleExpression, Maybe ASTSimpleExpression)
+type ASTExpression = (ASTSimpleExpression, Maybe (ASTRelationalOperator, ASTSimpleExpression))
 parseExpression :: Parser ASTExpression
 parseExpression =
     trace "parseExpression" (
         do
             x0 <- parseSimpleExpression
             x1 <- optionMaybe (try (
-                do parseRelationalOperator
-                   parseSimpleExpression
+                    do
+                        x0 <- parseRelationalOperator
+                        x1 <- parseSimpleExpression
+                        return (x0, x1)
                 ))
             return (x0, x1)
         )
 
-type ASTRelationalOperator = ()
+type ASTRelationalOperator = RelationalOperator
+data RelationalOperator =
+    OperatorEqual |
+    OperatorNotEqual |
+    OperatorLessThan |
+    OperatorGreaterThan |
+    OperatorLessThanOrEqual |
+    OperatorGreaterThanOrEqual
+    deriving Show
 parseRelationalOperator :: Parser ASTRelationalOperator
 parseRelationalOperator =
     trace "parseRelationalOperator" (choice [
-        try parseTokenEqual,
-        try parseTokenNotEqual,
-        try parseTokenLessThan,
-        try parseTokenGreaterThan,
-        try parseTokenLessThanOrEqual,
-        parseTokenGreaterThanOrEqual
+        try (
+            do
+                parseTokenEqual
+                return OperatorEqual
+            ),
+        try (
+            do
+                parseTokenNotEqual
+                return OperatorNotEqual
+            ),
+        try (
+            do
+                parseTokenLessThan
+                return OperatorLessThan
+            ),
+        try (
+            do
+                parseTokenGreaterThan
+                return OperatorGreaterThan
+            ),
+        try (
+            do
+                parseTokenLessThanOrEqual
+                return OperatorLessThanOrEqual
+            ),
+        do
+            parseTokenGreaterThanOrEqual
+            return OperatorGreaterThanOrEqual
         ])
 
 type ASTSimpleExpression = (Maybe ASTSign, ASTTerm, [(ASTAddingOperator, ASTTerm)])
@@ -832,13 +864,28 @@ parseSimpleExpression =
             return (x0, x1, x2)
         )
 
-type ASTAddingOperator = ()
+type ASTAddingOperator = AddingOperator
+data AddingOperator =
+    OperatorAdd |
+    OperatorMinus |
+    OperatorOr
+    deriving Show
 parseAddingOperator :: Parser ASTAddingOperator
 parseAddingOperator =
     trace "parseAddingOperator" (choice [
-        try parseTokenPlus,
-        try parseTokenMinus,
-        parseTokenOr
+        try (
+            do
+                parseTokenPlus
+                return OperatorAdd
+            ),
+        try (
+            do
+                parseTokenMinus
+                return OperatorMinus
+            ),
+        do
+            parseTokenOr
+            return OperatorOr
         ])
 
 type ASTTerm = (ASTFactor, [(ASTMultiplyingOperator, ASTFactor)])
@@ -856,14 +903,34 @@ parseTerm =
             return (x0, x1)
         )
 
-type ASTMultiplyingOperator = ()
+type ASTMultiplyingOperator = MultiplyingOperator
+data MultiplyingOperator =
+    OperatorTimes |
+    OperatorDivideBy |
+    OperatorDiv |
+    OperatorAnd
+    deriving Show
 parseMultiplyingOperator :: Parser ASTMultiplyingOperator
 parseMultiplyingOperator =
     trace "parseMultiplyingOperator" (choice [
-        try parseTokenTimes,
-        try parseTokenDivideBy,
-        try parseTokenDiv,
-        parseTokenAnd
+        try (
+            do
+                parseTokenTimes
+                return OperatorTimes
+            ),
+        try(
+            do
+                parseTokenDivideBy
+                return OperatorDivideBy
+            ),
+        try(
+            do
+                parseTokenDiv
+                return OperatorDiv
+            ),
+        do
+            parseTokenAnd
+            return OperatorAnd
         ])
 
 type ASTFactor = Factor
