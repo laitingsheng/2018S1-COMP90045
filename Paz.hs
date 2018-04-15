@@ -1,5 +1,3 @@
-{-# LANGUAGE PackageImports #-}
-
 import Debug.Trace (trace)
 import Text.Parsec (parse)
 import PazLexer

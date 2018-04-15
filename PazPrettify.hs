@@ -14,7 +14,10 @@ printIdentifierList :: ASTIdentifierList -> IO ()
 printIdentifierList (x, xs) = do
     putStr x
     -- print the rest of ids, adding ", " to separate and ": " for ending
-    sequence_ (map (\x -> putStr (", " ++ x)) xs)
+    sequence_ (map (\x -> do
+        putStr ", "
+        putStr x
+        ) xs)
 
 printTypeIdentifier :: ASTTypeIdentifier -> IO ()
 printTypeIdentifier ti =
@@ -92,7 +95,8 @@ printFormalParameterList (hfps, tfpss) = do
 
 printProcedureDeclaration :: ASTProcedureDeclaration -> IO ()
 printProcedureDeclaration (pid, mfpl, vdp, cs) = do
-    putStr ("procedure " ++ pid)
+    putStr "procedure "
+    putStr pid
     -- can have zero parameters
     case mfpl of
         Just fpl ->
@@ -119,29 +123,17 @@ printProcedureDeclarationPart pdp = do
 
 ----- Expression
 
--- duplicate functions for different ASTSign from lexer and parser
-
-printLexerSign :: PazLexer.ASTSign -> IO ()
-printLexerSign s =
+printSign :: ASTSign -> IO ()
+printSign s =
     case s of
-        PazLexer.SignPlus ->
+        SignPlus ->
             putChar '+'
-        PazLexer.SignMinus ->
+        SignMinus ->
             putChar '-'
-
-printParserSign :: PazParser.ASTSign -> IO ()
-printParserSign s =
-    case s of
-        PazParser.SignPlus ->
-            putChar '+'
-        PazParser.SignMinus ->
-            putChar '-'
-
---
 
 printConstant :: ASTConstant -> IO ()
 printConstant (ms, ui) = do
-    when (isJust ms) (printParserSign (fromJust ms))
+    when (isJust ms) (printSign (fromJust ms))
     putStr ui
 
 printAddingOperator :: ASTAddingOperator -> IO ()
@@ -168,13 +160,16 @@ printMultiplyingOperator mo =
 
 printScaleFactor :: ASTScaleFactor -> IO ()
 printScaleFactor (ms, ds) = do
-    when (isJust ms) (printLexerSign (fromJust ms))
+    when (isJust ms) (printSign (fromJust ms))
     putStr ds
 
 printUnsignedReal :: ASTUnsignedReal -> IO ()
 printUnsignedReal (ds, mds, msf) = do
     putStr (ds)
-    when (isJust mds) (putStr ("." ++ (fromJust mds)))
+    when (isJust mds) (do
+        putChar '.'
+        putStr (fromJust mds)
+        )
     when (isJust msf) (do
         putChar 'e'
         printScaleFactor (fromJust msf)
@@ -225,8 +220,8 @@ printIndexedVariableAccess :: ASTIndexedVariable -> IO ()
 printIndexedVariableAccess (vid, e) = do
     putStr vid
     putChar '['
-    -- no need to add paranthesis
-    printExpression False e
+    -- no need to add parenthesis
+    printExpression 0 e
     putChar ']'
 
 printVariableAccess :: ASTVariableAccess -> IO ()
@@ -237,10 +232,10 @@ printVariableAccess va =
         OrdinaryVariableAccess vid ->
             putStr vid
 
-printFactor :: Bool -> ASTFactor -> IO ()
-printFactor para f =
+printFactor :: Int -> ASTFactor -> IO ()
+printFactor level f =
     case f of
-        -- no need to add paranthesis
+        -- no need to add parenthesis, regardless of level
         UnsignedConstant uc ->
             printUnsignedConstant uc
         VariableAccess va ->
@@ -249,58 +244,89 @@ printFactor para f =
         -- this means a "not" is parsed previously
         Factor f -> do
             putStr "not "
-            -- force paranthesis if it is expression
-            printFactor True f
+            printFactor 6 f
 
-        -- need of paranthesis determined by the parameter
         Expression e -> do
-            printExpression para e
+            printExpression level e
 
 -- for (*, /, div, or) operators
-printTerm :: Bool -> ASTTerm -> IO ()
-printTerm para (f, mofs) = do
-    when para (putChar '(')
-    printFactor ipara f
-    sequence_ (map printmof mofs)
-    when para (putChar ')')
+printTerm :: Int -> ASTTerm -> IO ()
+printTerm level (f, []) = do
+    when pare (putChar '(')
+    printFactor level f
+    when pare (putChar ')')
     where
-        -- if in a form of expression * expression, force paranthesis
-        ipara = notnull mofs
-        printmof (mo, f) = do
-            putChar ' '
-            printMultiplyingOperator mo
-            putChar ' '
-            printFactor ipara f
+        pare = level > 4
+printTerm level (f, mofs) = do
+    when pare (putChar '(')
+    printFactor 4 f
+    sequence_ (map (\(mo, f) -> do
+        putChar ' '
+        printMultiplyingOperator mo
+        putChar ' '
+        case mo of
+            OperatorTimes ->
+                printFactor 5 f
+            otherwise ->
+                printFactor 4 f
+        ) mofs)
+    when pare (putChar ')')
+    where
+        pare = level > 4
 
 -- for (+, -, or) operators
-printSimpleExpression :: Bool -> ASTSimpleExpression -> IO ()
-printSimpleExpression para (ms, t, aots) = do
-    when para (putChar '(')
-    when (isJust ms) (printParserSign (fromJust ms))
-    printTerm False t
-    sequence_ (map printaot aots)
-    when para (putChar ')')
+printSimpleExpression :: Int -> ASTSimpleExpression -> IO ()
+printSimpleExpression level (ms, t, []) = do
+    case ms of
+        Just s -> do
+            when pare (putChar '(')
+            printSign s
+            -- negative sign has lower precedence accordingly
+            printTerm 2 t
+            when pare (putChar ')')
+        Nothing ->
+            printTerm level t
     where
-        printaot (ao, t) = do
-            putChar ' '
-            printAddingOperator ao
-            putChar ' '
-            printTerm False t
+        pare = level >= 2
+printSimpleExpression level (ms, t, haots) = do
+    when pare (putChar '(')
+    case ms of
+        Just s -> do
+            printSign s
+            printTerm 2 t
+        Nothing ->
+            printTerm 2 t
+    sequence_ (map (\(ao, t) -> do
+        putChar ' '
+        printAddingOperator ao
+        putChar ' '
+        case ao of
+            OperatorAdd ->
+                printTerm 2 t
+            otherwise ->
+                printTerm 3 t
+        ) haots)
+    when pare (putChar ')')
+    where
+        pare = level >= 2
 
--- for relational operator
-printExpression :: Bool -> ASTExpression -> IO ()
-printExpression para (se, mrose) = do
-    -- lowest operator precedence, all other types have no paranthesis
-    when para (putChar '(')
-    printSimpleExpression False se
-    when (isJust mrose) (do
-        let (ro, se) = fromJust mrose
-        putChar ' '
-        printRelationalOperator ro
-        putChar ' '
-        printSimpleExpression False se
-        )
-    when para (putChar ')')
+
+-- for relational operators (<, >, <>, <=, >=, =)
+printExpression :: Int -> ASTExpression -> IO ()
+printExpression level (se, Just rose) = do
+    -- allow cases such as (a < b) = (c > d)
+    when pare (putChar '(')
+    printSimpleExpression 1 se
+    putChar ' '
+    printRelationalOperator ro
+    putChar ' '
+    printSimpleExpression 1 nse
+    when pare (putChar ')')
+    where
+        pare = level >= 1
+        (ro, nse) = rose
+printExpression level (se, Nothing) =
+    printSimpleExpression level se
 
 -----
 
@@ -311,21 +337,22 @@ printAssignmentStatement ind (va, e) = do
     putStr (replicate ind ' ')
     printVariableAccess va
     putStr " := "
-    printExpression False e
+    printExpression 0 e
 
 printActualParameterList :: ASTActualParameterList -> IO ()
 printActualParameterList (e, es) = do
     putChar '('
-    printExpression False e
+    printExpression 0 e
     sequence_ (map (\e -> do
         putStr ", "
-        printExpression False e
+        printExpression 0 e
         ) es)
     putChar ')'
 
 printProcedureStatement :: Int -> ASTProcedureStatement -> IO ()
 printProcedureStatement ind (pid, mapl) = do
-    putStr (replicate ind ' ' ++ pid)
+    putStr (replicate ind ' ')
+    putStr pid
     when (isJust mapl) (printActualParameterList (fromJust mapl))
 
 printIfStatement :: Int -> ASTIfStatement -> IO ()
@@ -333,7 +360,7 @@ printIfStatement ind (e, s, ms) = do
     let spaces = replicate ind ' '
     putStr spaces
     putStr "if "
-    printExpression False e
+    printExpression 0 e
     putStrLn " then"
     printStatement (ind + 4) s
     when (isJust ms) (do
@@ -345,8 +372,9 @@ printIfStatement ind (e, s, ms) = do
 
 printWhileStatement :: Int -> ASTWhileStatement -> IO ()
 printWhileStatement ind (e, s) = do
-    putStr (replicate ind ' ' ++ "while ")
-    printExpression False e
+    putStr (replicate ind ' ')
+    putStr "while "
+    printExpression 0 e
     putStrLn " do"
     printStatement (ind + 4) s
 
@@ -360,12 +388,15 @@ printForRangeOperator fro =
 
 printForStatement :: Int -> ASTForStatement -> IO ()
 printForStatement ind (fid, e1, fro, e2, s) = do
-    putStr (replicate ind ' ' ++ "for " ++ fid ++ " := ")
-    printExpression False e1
+    putStr (replicate ind ' ')
+    putStr "for "
+    putStr fid
+    putStr " := "
+    printExpression 0 e1
     putChar ' '
     printForRangeOperator fro
     putChar ' '
-    printExpression False e2
+    printExpression 0 e2
     putStr " do\n"
     printStatement (ind + 4) s
 
@@ -416,9 +447,12 @@ printCompoundStatement ind cs = do
 prettyPrint :: ASTProgram -> IO ()
 prettyPrint (pid, vdp, pdp, cs) = do
     -- program declaration
-    putStrLn ("program " ++ pid ++ ";")
+    putStr "program "
+    putStr pid
+    putStrLn ";"
 
     -- variable declarations, global
+    when (isJust vdp) (putChar '\n')
     printVariableDeclarationPart vdp
 
     -- procedure declarations
@@ -427,6 +461,6 @@ prettyPrint (pid, vdp, pdp, cs) = do
     -- compound statement
     putChar '\n'
     printCompoundStatement 0 cs
-    putStrLn ".\n"
+    putStrLn "."
 
 ---------

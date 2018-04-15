@@ -23,7 +23,9 @@ import PazLexer (
     ASTCharacterString,
     ASTIdentifier,
     ASTUnsignedInteger,
-    ASTUnsignedReal
+    ASTUnsignedReal,
+    ASTSign,
+    Sign(..)
     )
 
 -- define a parser which parses an incoming stream of ASTLexicalToken,
@@ -1293,11 +1295,6 @@ parseConstant =
                 return (x0, x1)
             )
 
-type ASTSign = Sign
-data Sign =
-    SignPlus |
-    SignMinus
-    deriving(Show)
 parseSign :: Parser ASTSign
 parseSign =
     trace
