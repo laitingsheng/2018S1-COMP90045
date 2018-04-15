@@ -1,3 +1,10 @@
+--------------------------------------------------------------------------------
+-- Author: Tingsheng Lai
+-- Student Number: 781319
+-- Email: tingshengl@student.unimelb.edu.au
+-- The pretty printer (prettifier) of Paz
+--------------------------------------------------------------------------------
+
 module PazPrettify (prettyPrint) where
 
 import Control.Monad (when)
@@ -252,11 +259,7 @@ printFactor level f =
 -- for (*, /, div, or) operators
 printTerm :: Int -> ASTTerm -> IO ()
 printTerm level (f, []) = do
-    when pare (putChar '(')
     printFactor level f
-    when pare (putChar ')')
-    where
-        pare = level > 4
 printTerm level (f, mofs) = do
     when pare (putChar '(')
     printFactor 4 f

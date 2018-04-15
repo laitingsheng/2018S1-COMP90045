@@ -1,3 +1,10 @@
+--------------------------------------------------------------------------------
+-- Author: Tingsheng Lai
+-- Student Number: 781319
+-- Email: tingshengl@student.unimelb.edu.au
+-- The lexer generator of Paz, created by Harald Sondergaard
+--------------------------------------------------------------------------------
+
 module PazLexer where
 
 import Debug.Trace (trace)

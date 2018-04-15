@@ -1,3 +1,12 @@
+--------------------------------------------------------------------------------
+-- Author: Tingsheng Lai
+-- Student Number: 781319
+-- Email: tingshengl@student.unimelb.edu.au
+-- COMP90045 Project progressive release, a compiler for Paz
+-- This is the main file for execution
+-- Only the pretty printing function can work currently
+--------------------------------------------------------------------------------
+
 import Debug.Trace (trace)
 import Text.Parsec (parse)
 import PazLexer

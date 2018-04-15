@@ -1,3 +1,10 @@
+################################################################################
+# Author: Tingsheng Lai
+# Student Number: 781319
+# Email: tingshengl@student.unimelb.edu.au
+# Makefile for the Paz compiler
+################################################################################
+
 CC       = ghc
 COptions = -O2 -XPackageImports
 EXE      = Paz

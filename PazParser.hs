@@ -1,3 +1,11 @@
+--------------------------------------------------------------------------------
+-- Author: Tingsheng Lai
+-- Student Number: 781319
+-- Email: tingshengl@student.unimelb.edu.au
+-- The parser of Paz, created by Harald Sondergaard, only minor modification was
+-- applied
+--------------------------------------------------------------------------------
+
 module PazParser where
 
 import Debug.Trace (trace)
