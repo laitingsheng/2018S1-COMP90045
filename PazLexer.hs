@@ -1,13 +1,6 @@
---------------------------------------------------------------------------------
--- Author: Tingsheng Lai
--- Student Number: 781319
--- Email: tingshengl@student.unimelb.edu.au
--- The lexer generator of Paz, created by Harald Sondergaard
---------------------------------------------------------------------------------
-
 module PazLexer where
 
-import Debug.Trace (trace)
+--import Debug.Trace (trace)
 import Text.Parsec (
     SourcePos,
     anyChar,
@@ -29,6 +22,10 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Control.Monad (void)
 import Control.Applicative (many) -- get <|> from here too if needed
+
+-- turn off lexer tracing since stage 1 is now complete
+trace :: x -> y -> y
+trace _ y = y
 
 parseTokenEof :: Parser ()
 parseTokenEof = eof
@@ -155,6 +152,7 @@ data LexicalToken =
     LTDownTo |
     LTElse |
     LTEnd |
+    LTFalse |
     LTFor |
     LTFunction |
     LTIf |
@@ -164,11 +162,15 @@ data LexicalToken =
     LTOr |
     LTProcedure |
     LTProgram |
+    LTRead |
     LTReal |
     LTThen |
     LTTo |
+    LTTrue |
     LTVar |
     LTWhile |
+    LTWrite |
+    LTWriteln |
     LTCharacterString ASTCharacterString |
     LTIdentifier ASTIdentifier |
     LTUnsignedReal ASTUnsignedReal |
@@ -187,6 +189,7 @@ keywordToLexicalToken =
             ("downto", LTDownTo),
             ("else", LTElse),
             ("end", LTEnd),
+            ("false", LTFalse),
             ("for", LTFor),
             ("function", LTFunction),
             ("if", LTIf),
@@ -196,11 +199,15 @@ keywordToLexicalToken =
             ("or", LTOr),
             ("procedure", LTProcedure),
             ("program", LTProgram),
+            ("read", LTRead),
             ("real", LTReal),
             ("then", LTThen),
             ("to", LTTo),
+            ("true", LTTrue),
             ("var", LTVar),
-            ("while", LTWhile)
+            ("while", LTWhile),
+            ("write", LTWrite),
+            ("writeln", LTWriteln)
         ]
 parseLexicalToken :: Parser ASTLexicalToken
 parseLexicalToken =
@@ -576,13 +583,15 @@ parseIdentifier =
                 return (x0 : x1)
             )
 
-type ASTUnsignedInteger = ASTDigitSequence
+type ASTUnsignedInteger = Int
 parseUnsignedInteger :: Parser ASTUnsignedInteger
 parseUnsignedInteger =
     trace
         "parseUnsignedInteger"
         (
-            parseDigitSequence
+            do
+                x <- parseDigitSequence
+                return (read x)
             )
 
 type ASTDigitSequence = [ASTDigit]
@@ -603,7 +612,7 @@ parseDigitSequence =
                 return (x0 : x1)
             )
 
-type ASTUnsignedReal = (ASTDigitSequence, (Maybe ASTDigitSequence), (Maybe ASTScaleFactor))
+type ASTUnsignedReal = Double
 parseUnsignedReal :: Parser ASTUnsignedReal
 parseUnsignedReal =
     trace
@@ -628,7 +637,17 @@ parseUnsignedReal =
                                             return x0
                                         )
                                     )
-                            return (x0, Just x1, x2)
+                            return (
+                                read (
+                                    x0 ++
+                                        "." ++
+                                        x1 ++
+                                        case x2 of
+                                            Just (Just SignMinus, x) -> "e-" ++ x
+                                            Just (_, x) -> "e" ++ x
+                                            Nothing -> ""
+                                    )
+                                )
                         ),
                     do
                         x0 <-
@@ -636,7 +655,14 @@ parseUnsignedReal =
                         parseTokenE
                         x1 <-
                             parseScaleFactor
-                        return (x0, Nothing, Just x1)
+                        return (
+                            read (
+                                x0 ++
+                                    case x1 of
+                                        (Just SignMinus, x) -> "e-" ++ x
+                                        (_, x) -> "e" ++ x
+                                )
+                            )
                     ]
             )
 
@@ -645,7 +671,13 @@ parseTokenE =
     trace
         "parseTokenE"
         (
-            void (string "e")
+            choice
+                [
+                    try (
+                        void (string "e")
+                        ),
+                    void (string "E")
+                    ]
             )
 
 type ASTScaleFactor = ((Maybe ASTSign), ASTDigitSequence)
@@ -688,3 +720,440 @@ parseSign =
                         return SignMinus
                     ]
             )
+
+printStartSymbol :: ASTStartSymbol -> String
+printStartSymbol =
+    \x0 ->
+        (
+            printTokenWhitespace
+            ) ++
+        (
+            concatMap (
+                \x0 ->
+                    (
+                        printLexicalToken
+                        ) x0 ++
+                    (
+                        printTokenWhitespace
+                        )
+                )
+            ) x0 ++
+        (
+            printTokenEof
+            )
+
+printTokenWhitespace :: String
+printTokenWhitespace =
+    " "
+
+printTokenEof :: String
+printTokenEof =
+    "\n"
+
+printTokenLeftBrace :: String
+printTokenLeftBrace =
+    "{"
+
+printTokenRightBrace :: String
+printTokenRightBrace =
+    "}"
+
+printLexicalToken :: ASTLexicalToken -> String
+printLexicalToken =
+    \(_, x) -> (
+        case x of
+            LTLeftParenthesis -> (
+                printTokenLeftParenthesis
+                )
+            LTRightParenthesis -> (
+                printTokenRightParenthesis
+                )
+            LTTimes -> (
+                printTokenTimes
+                )
+            LTPlus -> (
+                printTokenPlus
+                )
+            LTComma -> (
+                printTokenComma
+                )
+            LTMinus -> (
+                printTokenMinus
+                )
+            LTEllipsis -> (
+                printTokenEllipsis
+                )
+            LTDot -> (
+                printTokenDot
+                )
+            LTDivideBy -> (
+                printTokenDivideBy
+                )
+            LTAssign -> (
+                printTokenAssign
+                )
+            LTColon -> (
+                printTokenColon
+                )
+            LTSemicolon -> (
+                printTokenSemicolon
+                )
+            LTLessThanOrEqual -> (
+                printTokenLessThanOrEqual
+                )
+            LTNotEqual -> (
+                printTokenNotEqual
+                )
+            LTLessThan -> (
+                printTokenLessThan
+                )
+            LTEqual -> (
+                printTokenEqual
+                )
+            LTGreaterThanOrEqual -> (
+                printTokenGreaterThanOrEqual
+                )
+            LTGreaterThan -> (
+                printTokenGreaterThan
+                )
+            LTLeftBracket -> (
+                printTokenLeftBracket
+                )
+            LTRightBracket -> (
+                printTokenRightBracket
+                )
+            LTAnd -> (
+                printTokenAnd
+                )
+            LTArray -> (
+                printTokenArray
+                )
+            LTBegin -> (
+                printTokenBegin
+                )
+            LTBoolean -> (
+                printTokenBoolean
+                )
+            LTDiv -> (
+                printTokenDiv
+                )
+            LTDo -> (
+                printTokenDo
+                )
+            LTDownTo -> (
+                printTokenDownTo
+                )
+            LTElse -> (
+                printTokenElse
+                )
+            LTEnd -> (
+                printTokenEnd
+                )
+            LTFalse -> (
+                printTokenFalse
+                )
+            LTFor -> (
+                printTokenFor
+                )
+            LTFunction -> (
+                printTokenFunction
+                )
+            LTIf -> (
+                printTokenIf
+                )
+            LTInteger -> (
+                printTokenInteger
+                )
+            LTNot -> (
+                printTokenNot
+                )
+            LTOf -> (
+                printTokenOf
+                )
+            LTOr -> (
+                printTokenOr
+                )
+            LTProcedure -> (
+                printTokenProcedure
+                )
+            LTProgram -> (
+                printTokenProgram
+                )
+            LTRead -> (
+                printTokenRead
+                )
+            LTReal -> (
+                printTokenReal
+                )
+            LTThen -> (
+                printTokenThen
+                )
+            LTTo -> (
+                printTokenTo
+                )
+            LTTrue -> (
+                printTokenTrue
+                )
+            LTVar -> (
+                printTokenVar
+                )
+            LTWhile -> (
+                printTokenWhile
+                )
+            LTWrite -> (
+                printTokenWrite
+                )
+            LTWriteln -> (
+                printTokenWriteln
+                )
+            LTCharacterString x -> (
+                printCharacterString
+                ) x
+            LTIdentifier x -> (
+                printIdentifier
+                ) x
+            LTUnsignedReal x -> (
+                printUnsignedReal
+                ) x
+            LTUnsignedInteger x -> (
+                printUnsignedInteger
+                ) x
+        )
+
+printTokenLeftParenthesis :: String
+printTokenLeftParenthesis =
+    "("
+
+printTokenRightParenthesis :: String
+printTokenRightParenthesis =
+    ")"
+
+printTokenTimes :: String
+printTokenTimes =
+    "*"
+
+printTokenPlus :: String
+printTokenPlus =
+    "+"
+
+printTokenComma :: String
+printTokenComma =
+    ","
+
+printTokenMinus :: String
+printTokenMinus =
+    "-"
+
+printTokenEllipsis :: String
+printTokenEllipsis =
+    ".."
+
+printTokenDot :: String
+printTokenDot =
+    "."
+
+printTokenDivideBy :: String
+printTokenDivideBy =
+    "/"
+
+printTokenAssign :: String
+printTokenAssign =
+    ":="
+
+printTokenColon :: String
+printTokenColon =
+    ":"
+
+printTokenSemicolon :: String
+printTokenSemicolon =
+    ";"
+
+printTokenLessThanOrEqual :: String
+printTokenLessThanOrEqual =
+    "<="
+
+printTokenNotEqual :: String
+printTokenNotEqual =
+    "<>"
+
+printTokenLessThan :: String
+printTokenLessThan =
+    "<"
+
+printTokenEqual :: String
+printTokenEqual =
+    "="
+
+printTokenGreaterThanOrEqual :: String
+printTokenGreaterThanOrEqual =
+    ">="
+
+printTokenGreaterThan :: String
+printTokenGreaterThan =
+    ">"
+
+printTokenLeftBracket :: String
+printTokenLeftBracket =
+    "["
+
+printTokenRightBracket :: String
+printTokenRightBracket =
+    "]"
+
+printTokenAnd :: String
+printTokenAnd =
+    "and"
+
+printTokenArray :: String
+printTokenArray =
+    "array"
+
+printTokenBegin :: String
+printTokenBegin =
+    "begin"
+
+printTokenBoolean :: String
+printTokenBoolean =
+    "boolean"
+
+printTokenDiv :: String
+printTokenDiv =
+    "div"
+
+printTokenDo :: String
+printTokenDo =
+    "do"
+
+printTokenDownTo :: String
+printTokenDownTo =
+    "downto"
+
+printTokenElse :: String
+printTokenElse =
+    "else"
+
+printTokenEnd :: String
+printTokenEnd =
+    "end"
+
+printTokenFalse :: String
+printTokenFalse =
+    "false"
+
+printTokenFor :: String
+printTokenFor =
+    "for"
+
+printTokenFunction :: String
+printTokenFunction =
+    "function"
+
+printTokenIf :: String
+printTokenIf =
+    "if"
+
+printTokenInteger :: String
+printTokenInteger =
+    "integer"
+
+printTokenNot :: String
+printTokenNot =
+    "not"
+
+printTokenOf :: String
+printTokenOf =
+    "of"
+
+printTokenOr :: String
+printTokenOr =
+    "or"
+
+printTokenProcedure :: String
+printTokenProcedure =
+    "procedure"
+
+printTokenProgram :: String
+printTokenProgram =
+    "program"
+
+printTokenRead :: String
+printTokenRead =
+    "read"
+
+printTokenReal :: String
+printTokenReal =
+    "real"
+
+printTokenThen :: String
+printTokenThen =
+    "then"
+
+printTokenTo :: String
+printTokenTo =
+    "to"
+
+printTokenTrue :: String
+printTokenTrue =
+    "true"
+
+printTokenVar :: String
+printTokenVar =
+    "var"
+
+printTokenWhile :: String
+printTokenWhile =
+    "while"
+
+printTokenWrite :: String
+printTokenWrite =
+    "write"
+
+printTokenWriteln :: String
+printTokenWriteln =
+    "writeln"
+ 
+printCharacterString :: ASTCharacterString -> String
+printCharacterString =
+    \x0 ->
+        (
+            printTokenSingleQuote
+            ) ++
+        (
+            concatMap (
+                printStringElement
+                )
+            ) x0 ++
+        (
+            printTokenSingleQuote
+            )
+
+printTokenSingleQuote :: String
+printTokenSingleQuote =
+    "'"
+
+printStringElement :: ASTStringElement -> String
+printStringElement =
+    \x -> (
+        case x of
+            '\'' ->
+                "''"
+            _ ->
+                [x]
+        )
+
+printIdentifier :: ASTIdentifier -> String
+printIdentifier =
+    id
+
+printUnsignedInteger :: ASTUnsignedInteger -> String
+printUnsignedInteger =
+    show
+
+printDigitSequence :: ASTDigitSequence -> String
+printDigitSequence =
+    id
+
+printUnsignedReal :: ASTUnsignedReal -> String
+printUnsignedReal =
+    show
+

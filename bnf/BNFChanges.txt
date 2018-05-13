@@ -1,0 +1,173 @@
+The lexical specification has changed as shown in the following "diff".
+
+Basically the Boolean constants and the built-in procedures have been
+made into reserved words. Originally they were going to be external
+symbols, but the Taz emulator doesn't support externals, hence the change.
+
+Also, a bug has been fixed with uppercase "E" exponents in real numbers.
+
+*******************************************************************************
+--- PazLexerBNF.txt	2018-03-16 00:40:03.000000000 +1100
++++ ../bnf/PazLexerBNF.txt	2018-04-27 14:06:30.488759059 +1000
+@@ -72,6 +72,7 @@
+     --| DOWN_TO
+     --| ELSE
+     --| END
++    --| FALSE
+     --| FOR
+     --| FUNCTION
+     --| IF
+@@ -81,11 +82,15 @@
+     --| OR
+     --| PROCEDURE
+     --| PROGRAM
++    --| READ
+     --| REAL
+     --| THEN
+     --| TO
++    --| TRUE
+     --| VAR
+     --| WHILE
++    --| WRITE
++    --| WRITELN
+     | character_string
+     | identifier
+     | unsigned_real
+@@ -211,6 +216,10 @@
+ --    : "end"
+ --    ;
+ 
++--FALSE
++--    : "false"
++--    ;
++
+ --FOR
+ --    : "for"
+ --    ;
+@@ -247,6 +256,10 @@
+ --    : "program"
+ --    ;
+ 
++--READ
++--    : "read"
++--    ;
++
+ --REAL
+ --    : "real"
+ --    ;
+@@ -259,6 +272,10 @@
+ --    : "to"
+ --    ;
+ 
++--TRUE
++--    : "true"
++--    ;
++
+ --VAR
+ --    : "var"
+ --    ;
+@@ -267,6 +284,14 @@
+ --    : "while"
+ --    ;
+ 
++--WRITE
++--    : "write"
++--    ;
++
++--WRITELN
++--    : "writeln"
++--    ;
++
+ character_string
+     : SINGLE_QUOTE {string_element} SINGLE_QUOTE
+     ;
+@@ -306,6 +331,7 @@
+ 
+ E
+     : "e"
++    | "E"
+     ;
+ 
+ scale_factor
+*******************************************************************************
+
+The syntax specification has also changed as shown in the following "diff".
+
+By using the new reserved words we can distinguish more syntactic categories
+at the syntax analysis stage which would have been left to semantic analysis.
+
+In particular, read() and write() and writeln are now done directly rather
+than requiring you to implement special handling for the procedure call code.
+This gets you up and running much quicker since you can use them for debugging.
+
+Constant handling (in expressions) has been changed as follows:
+- Boolean constants are now constants, so they appear in "unsigned_constant".
+- There is no longer an "unsigned_number" rule, since this just added extra
+  wrappers in the AST, so this rule has been expanded into "unsigned_constant".
+- String constants are no longer constants since they can only occur in a write
+  statement, which now has its own syntactic category just for writing strings.
+
+A bug has been fixed in "assignment_statement", removing an unused alternative.
+The "identifier" alternative for an assignment statement could never have been
+parsed since it would always appear to be an ordinary "variable_access". This
+is likely a bug in the original ISO Pascal specification, unless we wrecked it.
+
+******************************************************************************* --- PazParserBNF.txt	2018-03-16 00:40:51.000000000 +1100
++++ ../bnf/PazParserBNF.txt	2018-04-30 12:13:00.192894316 +1000
+@@ -35,6 +35,10 @@
+ 
+ statement
+     : assignment_statement
++    | read_statement
++    | write_statement
++    | write_string_statement
++    | writeln_statement
+     | procedure_statement -- must go after assignment_statement
+     | compound_statement
+     | if_statement
+@@ -48,7 +52,23 @@
+     ;
+ 
+ assignment_statement
+-    : (variable_access | identifier) ASSIGN expression
++    : variable_access ASSIGN expression
++    ;
++
++read_statement
++    : READ LEFT_PARENTHESIS variable_access RIGHT_PARENTHESIS
++    ;
++
++write_statement
++    : WRITE LEFT_PARENTHESIS expression RIGHT_PARENTHESIS
++    ;
++
++write_string_statement
++    : WRITE LEFT_PARENTHESIS character_string RIGHT_PARENTHESIS
++    ;
++
++writeln_statement
++    : WRITELN
+     ;
+ 
+ -- this means the call to a procedure
+@@ -124,13 +144,14 @@
+     ;
+ 
+ unsigned_constant
+-    : unsigned_number
+-    | character_string
++    : boolean_constant
++    | unsigned_integer
++    | unsigned_real
+     ;
+ 
+-unsigned_number
+-    : unsigned_integer
+-    | unsigned_real
++boolean_constant
++    : FALSE
++    | TRUE
+     ;
+ 
+ variable_access
+*******************************************************************************
