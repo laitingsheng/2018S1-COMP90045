@@ -8,7 +8,7 @@ var
 
 begin
     { dummy sentinel value }
-    x[0] := 0;
+    res[0] := 0; { Nick fixed this, formerly x[0] := 0; }
 
     write('Input 8 integers for an array: ');
     read(x[1]);
@@ -22,7 +22,7 @@ begin
 
     j := 1;
 
-    for i := i to 8 do
+    for i := 1 to 8 do { Nick fixed this, formerly for i := i to 8 do }
     begin
         res[i] := x[i];
 

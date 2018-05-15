@@ -235,7 +235,14 @@ precompileProcedureDeclarationPart symbols (x : xs) =
 precompileProcedureDeclaration ::
     Symbols -> ASTProcedureDeclaration -> Symbols
 precompileProcedureDeclaration (procSymbols, varSymbols) (x0, x1, x2, x3) =
-    (Map.insert x0 (precompileFormalParameterList x1) procSymbols, varSymbols)
+    case Map.lookup x0 procSymbols of
+        Nothing ->
+            (
+                Map.insert x0 (precompileFormalParameterList x1) procSymbols,
+                varSymbols
+                )
+        otherwise ->
+            error ("multiply defined procedure: " ++ x0)
 
 precompileFormalParameterList ::
     ASTFormalParameterList -> [(Bool, ASTTypeDenoter)]

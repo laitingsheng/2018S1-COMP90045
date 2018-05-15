@@ -18,42 +18,16 @@ die err = do
 
 main :: IO ()
 main = do
-    (x : xs) <- getArgs
+    x <- getArgs
     case x of
-        "-p" ->
-            let
-                (y : _) = xs
-            in
-                do
-                    file <- openFile y ReadMode
-                    text <- hGetContents file
-                    case
-                        trace
-                             "*** Lexical analysis"
-                             (parse PazLexer.parseStartSymbol "(stdin)" text)
-                        of
-                        Left error ->
-                            die ("Lexical error:\n" ++ show error)
-                        Right tokens ->
-                            case
-                                trace
-                                    "*** Syntax analysis"
-                                    (parse PazParser.parseStartSymbol "(stdin)" tokens)
-                                of
-                                Left error ->
-                                    die ("Syntax error:\n" ++ show error)
-                                Right ast ->
-                                    putStr (printStartSymbol ast)
-        _ ->
-            -- horrible duplication here.
-            -- this is so that we don't have to use Haskell Exceptions.
+        "-p" : y : _ ->
             do
-                file <- openFile x ReadMode
+                file <- openFile y ReadMode
                 text <- hGetContents file
                 case
                     trace
                          "*** Lexical analysis"
-                         (parse PazLexer.parseStartSymbol "(stdin)" text)
+                         (parse PazLexer.parseStartSymbol y text)
                     of
                     Left error ->
                         die ("Lexical error:\n" ++ show error)
@@ -61,7 +35,30 @@ main = do
                         case
                             trace
                                 "*** Syntax analysis"
-                                (parse PazParser.parseStartSymbol "(stdin)" tokens)
+                                (parse PazParser.parseStartSymbol y tokens)
+                            of
+                            Left error ->
+                                die ("Syntax error:\n" ++ show error)
+                            Right ast ->
+                                putStr (printStartSymbol ast)
+        y : _ ->
+            -- horrible duplication here.
+            -- this is so that we don't have to use Haskell Exceptions.
+            do
+                file <- openFile y ReadMode
+                text <- hGetContents file
+                case
+                    trace
+                         "*** Lexical analysis"
+                         (parse PazLexer.parseStartSymbol y text)
+                    of
+                    Left error ->
+                        die ("Lexical error:\n" ++ show error)
+                    Right tokens ->
+                        case
+                            trace
+                                "*** Syntax analysis"
+                                (parse PazParser.parseStartSymbol y tokens)
                             of
                             Left error ->
                                 die ("Syntax error:\n" ++ show error)

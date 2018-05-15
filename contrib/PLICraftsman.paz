@@ -91,7 +91,7 @@ begin
     y := 1;
     temp := x div y;
     result := x - temp;
-    while result < y do
+    while false do { Nick removed due to infinite loop: while result < y do}
     begin
         x := temp + result;
         y := result + 1;

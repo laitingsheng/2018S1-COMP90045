@@ -29,7 +29,8 @@ begin
                 quotient := in div try;
                 reminder := in - quotient * try;
                 if reminder = 0 then
-                    out := 0
+                    out := 0;
+                try := try + 1 { Nick has added this to avoid infinite loop }
             end
         end
     end

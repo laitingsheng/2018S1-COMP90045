@@ -1112,6 +1112,7 @@ data Expression =
     PlusExpression ASTSimpleExpression ASTTerm |
     MinusExpression ASTSimpleExpression ASTTerm |
     OrExpression ASTSimpleExpression ASTTerm |
+    PosExpression ASTTerm |
     NegExpression ASTTerm |
     -- ASTTerm
     TimesExpression ASTTerm ASTFactor |
@@ -1253,6 +1254,7 @@ parseSimpleExpression =
                     binaryExpressionList
                     (
                         case x0 of
+                            Just SignPlus -> PosExpression x1
                             Just SignMinus -> NegExpression x1
                             Nothing -> x1
                         )
@@ -2135,6 +2137,9 @@ printSimpleExpression =
                     printBinaryOperator OrOperator ++
                     " " ++
                     printTerm rhs
+            PosExpression expr ->
+                printSign SignPlus ++
+                    printTerm expr
             NegExpression expr ->
                 printSign SignMinus ++
                     printTerm expr
