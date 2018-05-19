@@ -131,7 +131,7 @@ parseTokenLeftParenthesis =
                     otherwise -> False
             )
         )
-    
+
 parseTokenRightParenthesis :: Parser ()
 parseTokenRightParenthesis =
     void (
@@ -142,7 +142,7 @@ parseTokenRightParenthesis =
                     otherwise -> False
             )
         )
-    
+
 parseTokenTimes :: Parser ()
 parseTokenTimes =
     void (
@@ -153,7 +153,7 @@ parseTokenTimes =
                     otherwise -> False
             )
         )
-    
+
 parseTokenPlus :: Parser ()
 parseTokenPlus =
     void (
@@ -164,7 +164,7 @@ parseTokenPlus =
                     otherwise -> False
             )
         )
-    
+
 parseTokenComma :: Parser ()
 parseTokenComma =
     void (
@@ -175,7 +175,7 @@ parseTokenComma =
                     otherwise -> False
             )
         )
-    
+
 parseTokenMinus :: Parser ()
 parseTokenMinus =
     void (
@@ -186,7 +186,7 @@ parseTokenMinus =
                     otherwise -> False
             )
         )
-    
+
 parseTokenEllipsis :: Parser ()
 parseTokenEllipsis =
     void (
@@ -197,7 +197,7 @@ parseTokenEllipsis =
                     otherwise -> False
             )
         )
-    
+
 parseTokenDot :: Parser ()
 parseTokenDot =
     void (
@@ -208,7 +208,7 @@ parseTokenDot =
                     otherwise -> False
             )
         )
-    
+
 parseTokenDivideBy :: Parser ()
 parseTokenDivideBy =
     void (
@@ -219,7 +219,7 @@ parseTokenDivideBy =
                     otherwise -> False
             )
         )
-    
+
 parseTokenAssign :: Parser ()
 parseTokenAssign =
     void (
@@ -230,7 +230,7 @@ parseTokenAssign =
                     otherwise -> False
             )
         )
-    
+
 parseTokenColon :: Parser ()
 parseTokenColon =
     void (
@@ -241,7 +241,7 @@ parseTokenColon =
                     otherwise -> False
             )
         )
-    
+
 parseTokenSemicolon :: Parser ()
 parseTokenSemicolon =
     void (
@@ -252,7 +252,7 @@ parseTokenSemicolon =
                     otherwise -> False
             )
         )
-    
+
 parseTokenLessThanOrEqual :: Parser ()
 parseTokenLessThanOrEqual =
     void (
@@ -263,7 +263,7 @@ parseTokenLessThanOrEqual =
                     otherwise -> False
             )
         )
-    
+
 parseTokenNotEqual :: Parser ()
 parseTokenNotEqual =
     void (
@@ -274,7 +274,7 @@ parseTokenNotEqual =
                     otherwise -> False
             )
         )
-    
+
 parseTokenLessThan :: Parser ()
 parseTokenLessThan =
     void (
@@ -285,7 +285,7 @@ parseTokenLessThan =
                     otherwise -> False
             )
         )
-    
+
 parseTokenEqual :: Parser ()
 parseTokenEqual =
     void (
@@ -296,7 +296,7 @@ parseTokenEqual =
                     otherwise -> False
             )
         )
-    
+
 parseTokenGreaterThanOrEqual :: Parser ()
 parseTokenGreaterThanOrEqual =
     void (
@@ -307,7 +307,7 @@ parseTokenGreaterThanOrEqual =
                     otherwise -> False
             )
         )
-    
+
 parseTokenGreaterThan :: Parser ()
 parseTokenGreaterThan =
     void (
@@ -318,7 +318,7 @@ parseTokenGreaterThan =
                     otherwise -> False
             )
         )
-    
+
 parseTokenLeftBracket :: Parser ()
 parseTokenLeftBracket =
     void (
@@ -329,7 +329,7 @@ parseTokenLeftBracket =
                     otherwise -> False
             )
         )
-    
+
 parseTokenRightBracket :: Parser ()
 parseTokenRightBracket =
     void (
@@ -340,7 +340,7 @@ parseTokenRightBracket =
                     otherwise -> False
             )
         )
-    
+
 parseTokenAnd :: Parser ()
 parseTokenAnd =
     void (
@@ -698,7 +698,7 @@ parseUnsignedReal =
         return x
 
 -- end of lexical tokens section
- 
+
 type ASTStartSymbol = ASTProgram
 parseStartSymbol :: Parser ASTStartSymbol
 parseStartSymbol =
@@ -2150,7 +2150,7 @@ printSimpleExpression =
 printTerm :: ASTTerm -> String
 printTerm =
     \x -> (
-        case x of 
+        case x of
             TimesExpression lhs rhs ->
                 printTerm lhs ++
                     " " ++

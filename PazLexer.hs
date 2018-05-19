@@ -1111,7 +1111,7 @@ printTokenWrite =
 printTokenWriteln :: String
 printTokenWriteln =
     "writeln"
- 
+
 printCharacterString :: ASTCharacterString -> String
 printCharacterString =
     \x0 ->
@@ -1156,4 +1156,3 @@ printDigitSequence =
 printUnsignedReal :: ASTUnsignedReal -> String
 printUnsignedReal =
     show
-
