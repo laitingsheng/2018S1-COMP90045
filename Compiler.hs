@@ -61,7 +61,7 @@ import PazLexer (
     printUnsignedInteger,
     printDigitSequence,
     printUnsignedReal
-    ) 
+    )
 import PazParser (
     ASTStartSymbol,
     ASTProgram,
@@ -168,7 +168,7 @@ type Symbols =
         Map String [(Bool, ASTTypeDenoter)],
 
         -- for each variable, its varness, type, and starting slot number
-        Map String (Bool, ASTTypeDenoter, Int)
+        Map String (ASTTypeDenoter, Int)
         )
 
 -- the following is a suggestion for how your compiler can be structured,
@@ -203,14 +203,10 @@ compileProgram (name, varDecls, procDecls, bodyStatement) =
             printIdentifier name ++
             "\n    call main\n    halt\n" ++
             procText ++
-            "main:\n    push_stack_frame " ++
+            "main:\n# prologue\n    push_stack_frame " ++
             show slot' ++
-            "\n# " ++
-            printTokenBegin ++
             "\n" ++
             bodyText ++
-            "# " ++
-            printTokenEnd ++
             "\n    pop_stack_frame " ++
             show slot' ++
             "\n    return\n"
@@ -271,24 +267,320 @@ compileVariableDeclarationPart ::
 compileVariableDeclarationPart slot symbols [] =
     (slot, symbols)
 compileVariableDeclarationPart slot symbols (x : xs) =
-    error "compiling variable declarations is not yet implemented"
+    let
+        (slot', symbols') = compileVariableDeclaration slot symbols x
+    in
+        compileVariableDeclarationPart slot' symbols' xs
+
+compileVariableDeclaration ::
+    Int -> Symbols -> ASTVariableDeclaration -> (Int, Symbols)
+compileVariableDeclaration slot symbols vd =
+    let
+        (ptable, table) = symbols
+        (idl, td) = vd
+
+        compile slot table [] =
+            (slot, table)
+        compile slot table (x:xs) =
+            compile (slot + 1) (Map.insert x (td, slot) table) xs
+
+        (slot', table') = compile slot table idl
+    in
+        (slot', (ptable, table'))
 
 -- compile a list of procedures
 -- takes a label number, a symbol table and an AST fragment
 -- returns the advanced label number and the generated code
 compileProcedureDeclarationPart ::
     Int -> Symbols -> ASTProcedureDeclarationPart -> (Int, String)
-compileProcedureDeclarationPart label symbols [] =
+compileProcedureDeclarationPart label symbols _ =
     (label, "")
-compileProcedureDeclarationPart label symbols (x : xs) =
-    error "compiling procedure declarations is not yet implemented"
+-- compileProcedureDeclarationPart label symbols (x : xs) =
+--     error "compiling procedure declarations is not yet implemented"
 
 -- compile a list of statements
 -- takes a label number, a symbol table and an AST fragment
 -- returns the advanced label number and the generated code
 compileCompoundStatement ::
     Int -> Symbols -> ASTCompoundStatement -> (Int, String)
-compileCompoundStatement label symbols [] =
-    (label, "")
-compileCompoundStatement label symbols (x : xs) =
-    error "compiling compound statements is not yet implemented"
+compileCompoundStatement label symbols cs =
+    compileCompoundStatement' label "" symbols cs
+
+compileCompoundStatement' ::
+    Int -> String -> Symbols -> ASTCompoundStatement -> (Int, String)
+compileCompoundStatement' label text symbols [] =
+    (label, text)
+compileCompoundStatement' label text symbols (x : xs) =
+    let
+        (label', text') = compileStatement label symbols x
+        text'' = text ++ text'
+    in
+        compileCompoundStatement' label' text'' symbols xs
+
+compileStatement ::
+    Int -> Symbols -> ASTStatement -> (Int, String)
+compileStatement label symbols s =
+    case s of
+        AssignmentStatement (va, e) ->
+            let
+                (tid, text) = compileExpression 0 symbols e
+                (_, table) = symbols
+            in
+                (
+                    label,
+                    "# assignment\n" ++ text ++ case va of
+                        IndexedVariableAccess iva ->
+                            undefined
+                        OrdinaryVariableAccess vid ->
+                            let
+                                (td, slot) = case Map.lookup vid table of
+                                    Nothing ->
+                                        error (
+                                            "variable " ++ vid ++ " undeclared"
+                                        )
+                                    Just i ->
+                                        i
+                            in
+                                case td of
+                                    ArrayTypeDenoter _ ->
+                                        error "cannot put value into array"
+                                    OrdinaryTypeDenoter tid' ->
+                                        if tid' == tid then
+                                            "    store " ++
+                                                show slot ++
+                                                ", r0\n"
+                                            else error "unmatched type"
+                )
+        ReadStatement rs ->
+            (
+                label,
+                let
+                    (_, table) = symbols
+                in
+                    "# read\n    call_builtin " ++ case rs of
+                        IndexedVariableAccess iva ->
+                            undefined
+                        OrdinaryVariableAccess vid ->
+                            let
+                                (td, slot) = case Map.lookup vid table of
+                                    Nothing ->
+                                        error (
+                                            "variable " ++ vid ++ " undeclared"
+                                        )
+                                    Just i ->
+                                        i
+                                t = case td of
+                                    ArrayTypeDenoter _ ->
+                                        error "cannot put value into array"
+                                    OrdinaryTypeDenoter tid ->
+                                        case tid of
+                                            IntegerTypeIdentifier ->
+                                                "read_int"
+                                            RealTypeIdentifier ->
+                                                "read_real"
+                                            BooleanTypeIdentifier ->
+                                                "read_bool"
+                            in
+                                t ++ "\n    store " ++
+                                show slot ++
+                                ", r0\n"
+            )
+        WriteStatement ws ->
+            (
+                label,
+                let
+                    (tid, text) = compileExpression 0 symbols ws
+                in
+                    "# write\n" ++
+                        text ++
+                        "    call_builtin " ++ case tid of
+                            IntegerTypeIdentifier ->
+                                "print_int"
+                            RealTypeIdentifier ->
+                                "print_real"
+                            BooleanTypeIdentifier ->
+                                "print_bool"
+                        ++ "\n"
+            )
+        WriteStringStatement wss ->
+            (
+                label,
+                "# write\n    string_const r0, '" ++ wss ++
+                    "'\n    call_builtin print_string\n"
+            )
+        WritelnStatement ->
+            (label, "# writeln\n    call_builtin print_newline\n")
+        ProcedureStatement ps ->
+            undefined
+        CompoundStatement cs ->
+            compileCompoundStatement label symbols cs
+        IfStatement (e, s, ms) -> case ms of
+            Nothing ->
+                let
+                    (_, text1) = compileExpression 0 symbols e
+                    (label', text2) = compileStatement label symbols s
+                in
+                    (
+                        label' + 1,
+                        "# if\n" ++
+                            text1 ++
+                            "    branch_on_false r0, label" ++
+                            show label ++
+                            "\n" ++
+                            text2 ++
+                            "label" ++
+                            show label ++
+                            ":\n"
+                    )
+            -- have a else branch
+            Just s ->
+                (
+                    label + 2,
+                    undefined
+                )
+        WhileStatement whs ->
+            undefined
+        ForStatement fs ->
+            undefined
+        EmptyStatement ->
+            (label, "")
+
+compileExpression ::
+    Int -> Symbols -> ASTExpression -> (ASTTypeIdentifier, String)
+compileExpression reg symbols e = case e of
+    EqualExpression se1 se2 ->
+        undefined
+    NotEqualExpression se1 se2 ->
+        undefined
+    LessThanExpression se1 se2 ->
+        let
+            (td1, text1) = compileSimpleExpression reg symbols se1
+            reg' = reg + 1
+            (td2, text2) = compileSimpleExpression reg' symbols se2
+            r1 = case td1 of
+                IntegerTypeIdentifier ->
+                    False
+                RealTypeIdentifier ->
+                    True
+                BooleanTypeIdentifier ->
+                    error "cannot compare boolean value"
+            r2 = case td2 of
+                IntegerTypeIdentifier ->
+                    False
+                RealTypeIdentifier ->
+                    True
+                BooleanTypeIdentifier ->
+                    error "cannot compare boolean value"
+            r = if r1 || r2 then True else False
+        in
+            (
+                BooleanTypeIdentifier,
+                text1 ++ text2 ++
+                    if r then "    cmp_lt_real r" else "    cmp_lt_int r" ++
+                    show reg ++ ", r" ++ show reg ++ ", r" ++ show reg' ++ "\n"
+            )
+    GreaterThanExpression se1 se2 ->
+        undefined
+    LessThanOrEqualExpression se1 se2 ->
+        undefined
+    GreaterThanOrEqualExpression se1 se2 ->
+        undefined
+    otherwise ->
+        compileSimpleExpression reg symbols e
+
+compileSimpleExpression ::
+    Int -> Symbols -> ASTSimpleExpression -> (ASTTypeIdentifier, String)
+compileSimpleExpression reg symbols se = case se of
+    PlusExpression se t ->
+        undefined
+    MinusExpression se t ->
+        let
+            reg' = reg + 1
+            (tid1, text1) = compileSimpleExpression reg symbols se
+            (tid2, text2) = if tid1 == BooleanTypeIdentifier then
+                error "cannot be boolean value"
+                else compileTerm reg' symbols t
+        in
+            undefined
+    OrExpression se t ->
+        undefined
+    PosExpression t ->
+        undefined
+    NegExpression t ->
+        undefined
+    otherwise ->
+        compileTerm reg symbols se
+
+compileTerm ::
+    Int -> Symbols -> ASTTerm -> (ASTTypeIdentifier, String)
+compileTerm reg symbols t = case t of
+    TimesExpression t f ->
+        undefined
+    DivideByExpression t f ->
+        undefined
+    DivExpression t f ->
+        (
+            IntegerTypeIdentifier,
+            let
+                reg' = reg + 1
+                (tid1, text1) = compileTerm reg symbols t
+                (tid2, text2) = if tid1 == IntegerTypeIdentifier then
+                    compileFactor reg' symbols f
+                    else error "both side should be integers"
+            in
+                if tid2 == IntegerTypeIdentifier then
+                    text1 ++
+                        text2 ++
+                        "    div_int r" ++
+                        show reg ++
+                        ", r" ++
+                        show reg ++
+                        ", r" ++
+                        show reg' ++
+                        "\n"
+                    else error "both side should be integers"
+        )
+    AndExpression t f ->
+        undefined
+    otherwise ->
+        compileFactor reg symbols t
+
+compileFactor ::
+    Int -> Symbols -> ASTFactor -> (ASTTypeIdentifier, String)
+compileFactor reg symbols f = case f of
+    UnsignedConstantExpression uc ->
+        undefined
+    VariableAccessExpression va ->
+        let
+            (_, table) = symbols
+        in
+            case va of
+                IndexedVariableAccess iva ->
+                    undefined
+                OrdinaryVariableAccess vid ->
+                    let
+                        (td, slot) = case Map.lookup vid table of
+                            Nothing ->
+                                error (
+                                    "variable " ++ vid ++ " undeclared"
+                                )
+                            Just i ->
+                                i
+                        tid = case td of
+                            ArrayTypeDenoter at ->
+                                undefined
+                            OrdinaryTypeDenoter tid ->
+                                tid
+                    in
+                        (
+                            tid,
+                            "    load r" ++
+                                show reg ++
+                                ", " ++
+                                show slot ++
+                                "\n"
+                        )
+    NotExpression f ->
+        undefined
+    otherwise ->
+        compileExpression reg symbols f
