@@ -2,5 +2,10 @@
 *.o
 .trace
 Paz
+taz
+test.taz
+ltaz.c
+ptaz.c
+ptaz.h
 PazLexerTest
 PazParserTest
