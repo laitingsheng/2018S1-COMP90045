@@ -691,7 +691,78 @@ compileSimpleExpression ::
     Int -> Symbols -> Bool -> ASTSimpleExpression -> (ASTTypeIdentifier, String)
 compileSimpleExpression reg symbols var se = case se of
     PlusExpression se t ->
-        undefined
+        let
+            reg' = reg + 1
+            (tid1, text1) = compileSimpleExpression reg symbols var se
+            (tid2, text2) = if tid1 == BooleanTypeIdentifier then
+                error "cannot be boolean value"
+                else compileTerm reg' symbols var t
+        in
+            if tid2 == BooleanTypeIdentifier then
+                error "cannot be boolean value"
+                else case (tid1, tid2) of
+                    (IntegerTypeIdentifier, IntegerTypeIdentifier) ->
+                        (
+                            IntegerTypeIdentifier,
+                            text1 ++
+                                text2 ++
+                                "    add_int r" ++
+                                show reg ++
+                                ", r" ++
+                                show reg ++
+                                ", r" ++
+                                show reg' ++
+                                "\n"
+                            )
+                    (RealTypeIdentifier, RealTypeIdentifier) ->
+                        (
+                            RealTypeIdentifier,
+                            text1 ++
+                                text2 ++
+                                "    add_real r" ++
+                                show reg ++
+                                ", r" ++
+                                show reg ++
+                                ", r" ++
+                                show reg' ++
+                                "\n"
+                            )
+                    (IntegerTypeIdentifier, RealTypeIdentifier) ->
+                        (
+                            RealTypeIdentifier,
+                            text1 ++
+                                "    int_to_real r" ++
+                                show reg ++
+                                ", r" ++
+                                show reg ++
+                                "\n" ++
+                                text2 ++
+                                "    add_real r" ++
+                                show reg ++
+                                ", r" ++
+                                show reg ++
+                                ", r" ++
+                                show reg' ++
+                                "\n"
+                            )
+                    (RealTypeIdentifier, IntegerTypeIdentifier) ->
+                        (
+                            RealTypeIdentifier,
+                            text1 ++
+                                text2 ++
+                                "    int_to_real r" ++
+                                show reg' ++
+                                ", r" ++
+                                show reg' ++
+                                "\n" ++
+                                "    add_real r" ++
+                                show reg ++
+                                ", r" ++
+                                show reg ++
+                                ", r" ++
+                                show reg' ++
+                                "\n"
+                            )
     MinusExpression se t ->
         let
             reg' = reg + 1
@@ -765,8 +836,6 @@ compileSimpleExpression reg symbols var se = case se of
                                 show reg' ++
                                 "\n"
                             )
-                    otherwise ->
-                        error "invalid type"
     OrExpression se t ->
         undefined
     PosExpression t ->
@@ -886,8 +955,9 @@ compileTerm reg symbols var t = case t of
 compileFactor ::
     Int -> Symbols -> Bool -> ASTFactor -> (ASTTypeIdentifier, String)
 compileFactor reg symbols var f = case f of
-    UnsignedConstantExpression uc ->
-        case uc of
+    UnsignedConstantExpression uc -> if var then
+        error "rvalue cannot be referenced"
+        else case uc of
             UnsignedInteger i ->
                 (
                     IntegerTypeIdentifier,
@@ -907,7 +977,11 @@ compileFactor reg symbols var f = case f of
                         "\n"
                     )
             BooleanConstant b ->
-                undefined
+                "    int_const r" ++
+                    show reg ++
+                    ", " ++
+                    if b then "1" else "0" ++
+                    "\n"
     VariableAccessExpression va ->
         let
             (_, table) = symbols
