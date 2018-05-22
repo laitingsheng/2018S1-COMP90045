@@ -252,6 +252,10 @@ printDebugSlot = printActionInt "debug_slot"
 printDebugStack :: String
 printDebugStack = printAction "debug_stack"
 
+printToException :: String -> Int -> String -> String
+printToException cond reg label =
+    printActionRegString (printf "branch_%s" cond) reg label
+
 
 -- this is the entry point to the compiler from the Paz.hs driver module
 compileStartSymbol :: ASTStartSymbol -> String
@@ -499,8 +503,7 @@ compileStatement label symbols s =
                 text' = case va of
                     IndexedVariableAccess (aid, e) ->
                         let
-                            (tid', text) =
-                                compileExpression 1 symbols False e
+                            (tid', text) = compileExpression 1 symbols False e
                             (var, td, slot) =
                                 if tid' == IntegerTypeIdentifier then
                                     case Map.lookup aid table of
@@ -534,7 +537,7 @@ compileStatement label symbols s =
                                 ArrayTypeDenoter (st, tid') ->
                                     let
                                         text'' = text ++
-                                            compileSubrangeType 2 st ++
+                                            undefined ++
                                             text'
                                     in
                                         if tid == tid' then text''
@@ -607,7 +610,7 @@ compileStatement label symbols s =
                                             "read_real"
                                         BooleanTypeIdentifier ->
                                             "read_bool"
-                                    ++ "\n" ++ compileSubrangeType 1 st
+                                    ++ "\n" ++ undefined 1 st
                                 OrdinaryTypeDenoter _ ->
                                     error (aid ++ " cannot be indexed")
                             text' = if var then
@@ -791,51 +794,40 @@ compileActualParameterList slot symbols ((var, td):xs) (y:ys) =
         (slot', text ++ text1)
 
 compileArrayType ::
-    Int -> Int -> Symbols -> ASTExpression -> ASTArrayType
+    Int -> Int -> Symbols -> ASTExpression -> ASTArrayType -> String
         -> (ASTTypeIdentifier, String)
-compileArrayType slot reg symbols e (st, tid) =
+compileArrayType slot reg symbols e ((lo, hi), tid) action =
     let
         r0 = reg
         r1 = reg + 1
         r2 = reg + 2
         r3 = reg + 3
-        r4 = reg + 4
         -- expression as the index
         (tid', text) = compileExpression r0 symbols False e
     in
         if tid' == IntegerTypeIdentifier then
             (
                 tid,
-                "# array\n" ++
+                printComment "array" ++
                     text ++
-                    compileSubrangeType r1 st ++
-                    "# check boundaries\n" ++
+                    -- put boundaries into registers
+                    printIntConst r1 lo ++
+                    printIntConst r2 hi ++
+                    printComment "check boundaries" ++
                     -- runtime lower bound check
-                    printf "    cmp_lt_int r%d, r%d, r%d\n" r4 r1 r2 ++
-                    printf "    branch_on_true r%d, __IndexException\n" r4 ++
+                    printCmp "lt" "int" r3 r0 r1 ++
+                    printToException "on_true" r3 "__IndexException" ++
                     -- runtime upper bound check
-                    printf "    cmp_gt_int r%d, r%d, r%d\n" r4 r1 r3 ++
-                    printf "    branch_on_true r%d, __IndexException\n" r4 ++
-                    "# get offset\n" ++
-                    printf "    sub_int r%d, r%d, r%d\n" r1 r1 r2 ++
+                    printCmp "gt" "int" r3 r0 r2 ++
+                    printToException "on_true" r3 "__IndexException" ++
+                    printComment "get offset" ++
+                    printBinary "sub" (Just "int") r0 r0 r1 ++
                     -- load the address and add offset
-                    "    load_address r2, " ++ show slot ++
-                    "\n    add_offset r2, r2, r1\n" ++
-                    "    store_indirect r2, r0\n"
+                    printLoadAddress r1 slot ++
+                    printBinary "add" (Just "offset") r0 r1 r0 ++
+                    action
                 )
             else error "array index must be integer"
-
-compileSubrangeType :: Int -> ASTSubrangeType -> String
-compileSubrangeType reg (lo, hi) =
-    "    int_const r" ++
-        show reg ++
-        ", " ++
-        show lo ++
-        "\n    int_const r" ++
-        show (reg + 1) ++
-        ", " ++
-        show hi ++
-        "\n"
 
 compileExpression ::
     Int -> Symbols -> Bool -> ASTExpression -> (ASTTypeIdentifier, String)
