@@ -152,6 +152,106 @@ import PazParser (
     printConstant,
     printSign
     )
+import Text.Printf
+
+-- for ease of printing
+printIndent :: String
+printIndent = "    "
+
+printAction :: String -> String
+printAction a = printf "%s%s\n" printIndent a
+
+printActionInt :: String -> Int -> String
+printActionInt a d = printf "%s%s %d\n" printIndent a d
+
+printActionString :: String -> String -> String
+printActionString a s = printf "%s%s %s\n" printIndent a s
+
+printActionReg2 :: String -> Int -> Int -> String
+printActionReg2 a r0 r1 = printf "%s%s r%d, r%d\n" printIndent a r0 r1
+
+printActionReg3 :: String -> Int -> Int -> Int -> String
+printActionReg3 a r0 r1 r2 =
+    printf "%s%s r%d, r%d, r%d\n" printIndent a r0 r1 r2
+
+printActionRegString :: String -> Int -> String -> String
+printActionRegString a reg s = printf "%s%s r%d, %s\n" printIndent a reg s
+
+printIntLabel :: Int -> String
+printIntLabel label = printf "label%d:\n" label
+
+printProcedureName :: String -> String
+printProcedureName name = printf "%s:\n" name
+
+printComment :: String -> String
+printComment comment = printf "# %s\n" comment
+
+-- all instructions
+printPushStackFrame :: Int -> String
+printPushStackFrame = printActionInt "push_stack_frame"
+printPopStackFrame :: Int -> String
+printPopStackFrame = printActionInt "pop_stack_frame"
+
+printLoad :: Int -> Int -> String
+printLoad reg slot = printActionRegString "load" reg (show slot)
+printStore :: Int -> Int -> String
+printStore slot reg = printActionString "store" (printf "%d, r%d" slot reg)
+printLoadAddress :: Int -> Int -> String
+printLoadAddress reg slot = printActionRegString "load_address" reg (show slot)
+printLoadIndirect :: Int -> Int -> String
+printLoadIndirect = printActionReg2 "load_indirect"
+printStoreIndirect :: Int -> Int -> String
+printStoreIndirect = printActionReg2 "store_indirect"
+
+printIntConst :: Int -> Int -> String
+printIntConst reg c = printActionRegString "int_const" reg (show c)
+printRealConst :: Int -> Double -> String
+printRealConst reg c = printActionRegString "real_const" reg (show c)
+printStringConst :: Int -> String -> String
+printStringConst reg c =
+    printActionRegString "string_const" reg (printCharacterString c)
+
+printBinary :: String -> Maybe String -> Int -> Int -> Int -> String
+printBinary a Nothing = printActionReg3 (printf "%s" a)
+printBinary a (Just t) = printActionReg3 (printf "%s_%s" a t)
+printUnary :: String -> Maybe String -> Int -> Int -> String
+printUnary a Nothing = printActionReg2 (printf "%s" a)
+printUnary a (Just t) = printActionReg2 (printf "%s_%s" a t)
+
+printCmp :: String -> String -> Int -> Int -> Int -> String
+printCmp c t = printActionReg3 (printf "cmp_%s_%s" c t)
+
+printInt2Real :: Int -> Int -> String
+printInt2Real = printActionReg2 "int_to_real"
+printMove :: Int -> Int -> String
+printMove = printActionReg2 "move"
+
+printBranchTrue :: Int -> Int -> String
+printBranchTrue reg label =
+    printActionRegString "branch_on_true" reg (printf "label%d" label)
+printBranchFalse :: Int -> Int -> String
+printBranchFalse reg label =
+    printActionRegString "branch_on_false" reg (printf "label%d" label)
+printBranchUncond :: Int -> String
+printBranchUncond label =
+    printActionString "branch_uncond" (printf "label%d" label)
+
+printCall :: String -> String
+printCall = printActionString "call"
+printCallBuiltin :: String -> String
+printCallBuiltin = printActionString "call_builtin"
+printReturn :: String
+printReturn = printAction "return"
+printHalt :: String
+printHalt = printAction "halt"
+
+printDebugReg :: Int -> String
+printDebugReg reg = printActionString "debug_reg" (printf "r%d" reg)
+printDebugSlot :: Int -> String
+printDebugSlot = printActionInt "debug_slot"
+printDebugStack :: String
+printDebugStack = printAction "debug_stack"
+
 
 -- this is the entry point to the compiler from the Paz.hs driver module
 compileStartSymbol :: ASTStartSymbol -> String
@@ -201,15 +301,23 @@ compileProgram (name, varDecls, procDecls, bodyStatement) =
             printTokenProgram ++
             " " ++
             printIdentifier name ++
-            "\n    call main\n    halt\n" ++
-            procText ++
-            "main:\n# prologue\n    push_stack_frame " ++
-            show slot' ++
             "\n" ++
+            printCall "main" ++
+            printHalt ++
+            procText ++
+            printProcedureName "main" ++
+            printComment "prologue" ++
+            printPushStackFrame slot' ++
             bodyText ++
-            "# epilogue\n    pop_stack_frame " ++
-            show slot' ++
-            "\n    return\n"
+            printComment "epilogue" ++
+            printPopStackFrame slot' ++
+            printReturn ++
+            -- handle runtime error
+            printComment "error handling" ++
+            printProcedureName "__Exception" ++
+            printStringConst 0 "an exception was thrown" ++
+            printCallBuiltin "print_string" ++
+            printHalt
 
 -- the following pre-compilation functions are intended as an example of
 -- how you can walk through the AST gathering information into a symbol
@@ -268,6 +376,7 @@ compileVariableDeclarationPart slot symbols [] =
     (slot, symbols)
 compileVariableDeclarationPart slot symbols ((idl, td) : xs) =
     let
+        -- compile each line of declration, local variable don't have varness
         (slot', symbols') = compileIdentifierList slot symbols (False, idl, td)
     in
         compileVariableDeclarationPart slot' symbols' xs
@@ -279,9 +388,17 @@ compileIdentifierList slot symbols (_, [], _) =
     (slot, symbols)
 compileIdentifierList slot symbols (var, (x:xs), td) =
     let
+        -- array occupies a continuous block of positions in the current stack
+        -- frame with a size of (hi - lo + 1)
         (ptable, table) = symbols
+        slot' = case td of
+            ArrayTypeDenoter ((lo, hi), _) ->
+                slot + hi - lo + 1
+            OrdinaryTypeDenoter _ ->
+                slot + 1
     in
-        compileIdentifierList (slot + 1)
+        -- compile each declaration in the list
+        compileIdentifierList slot'
             (ptable, Map.insert x (var, td, slot) table)
             (var, xs, td)
 
@@ -303,7 +420,7 @@ compileProcedureDeclaration ::
     Int -> Symbols -> ASTProcedureDeclaration -> (Int, String)
 compileProcedureDeclaration label symbols (pid, fpl, vdp, cs) =
     let
-        -- since the program variables are isolated from the procedure variables
+        -- the program variables are isolated from the procedure variables
         (ptable, _) = symbols
         symbols' = (ptable, Map.empty)
 
@@ -313,18 +430,18 @@ compileProcedureDeclaration label symbols (pid, fpl, vdp, cs) =
     in
         (
             label',
-            "# procedure " ++
-                pid ++
-                "\n" ++
-                pid ++
-                ":\n    push_stack_frame " ++
-                show slot' ++
-                "\n" ++
-                text1 ++ "" ++
+            printComment ("procedure " ++ pid) ++
+                printProcedureName pid ++
+                -- push a new stack frame for the current procedure
+                printPushStackFrame slot' ++
+                -- first parse the parameter list
+                printComment "store parameters" ++
+                text1 ++
+                -- parse all statements
                 text2 ++
-                "    pop_stack_frame " ++
-                show slot' ++
-                "\n    return\n"
+                -- pop the current stack frame
+                printPopStackFrame slot' ++
+                printReturn
             )
 
 compileFormalParameterList ::
@@ -335,16 +452,18 @@ compileFormalParameterList slot symbols (x:xs) =
     let
         (slot', symbols') =
             compileIdentifierList slot symbols x
-        (slot'', symbols'', text) = compileFormalParameterList slot' symbols' xs
+        (slot'', symbols'', r) = compileFormalParameterList slot' symbols' xs
     in
         (
+            -- for n parameters, the value is stored in registers numbering 0 to
+            -- n - 1 and the parameters are treated as local variable (the
+            -- referenced variable is also a local variable holding the address)
+            -- so we need an extra n slots
             slot'',
+            -- store the values from registers to the stack
             symbols'',
-            "    store " ++
-                show slot ++
-                ", r" ++
-                show slot ++
-                "\n" ++ text
+            -- proceed to next parameter
+            printStore slot slot ++ r
             )
 
 -- compile a list of statements
@@ -356,9 +475,11 @@ compileCompoundStatement label symbols [] =
     (label, "")
 compileCompoundStatement label symbols (x:xs) =
     let
+        -- compile each statement
         (label', text) = compileStatement label symbols x
         (label'', text') = compileCompoundStatement label' symbols xs
     in
+        -- proceed to next statement
         (label'', text ++ text')
 
 compileStatement ::
@@ -369,119 +490,179 @@ compileStatement label symbols s =
             let
                 (tid, text) = compileExpression 0 symbols False e
                 (_, table) = symbols
+                text' = case va of
+                    IndexedVariableAccess (aid, e) ->
+                        let
+                            (tid', text) =
+                                compileExpression 1 symbols False e
+                            (var, td, slot) =
+                                if tid' == IntegerTypeIdentifier then
+                                    case Map.lookup aid table of
+                                        Nothing ->
+                                            error (
+                                                "variable " ++
+                                                    aid ++
+                                                    " undeclared"
+                                                )
+                                        Just i ->
+                                            i
+                                    else
+                                        error "index must be integer"
+                            text' = if var then
+                                undefined
+                                else "# check boundaries\n" ++
+                                    "    cmp_lt_int r4, r1, r2\n" ++
+                                    -- runtime lower bound check
+                                    "    branch_on_true r4, __Exception\n" ++
+                                    "    cmp_gt_int r4, r1, r3\n" ++
+                                    -- runtime upper bound check
+                                    "    branch_on_true r4, __Exception\n" ++
+                                    "# get offset\n" ++
+                                    "    sub_int r1, r1, r2\n" ++
+                                    -- load the address and add offset
+                                    "    load_address r2, " ++ show slot ++
+                                    "\n    add_offset r2, r2, r1\n" ++
+                                    "    store_indirect r2, r0\n"
+                        in
+                            case td of
+                                ArrayTypeDenoter (st, tid') ->
+                                    let
+                                        text'' = text ++
+                                            compileSubrangeType 2 st ++
+                                            text'
+                                    in
+                                        if tid == tid' then text''
+                                            else if tid == RealTypeIdentifier &&
+                                                tid' == IntegerTypeIdentifier
+                                                then "    int_to_real r1, r1" ++
+                                                    text''
+                                                else error "unmatched type"
+                                OrdinaryTypeDenoter _ ->
+                                    error (aid ++ " cannot be indexed")
+                    OrdinaryVariableAccess vid ->
+                        let
+                            (var, td, slot) = case Map.lookup vid table of
+                                Nothing ->
+                                    error (
+                                        "variable " ++ vid ++ " undeclared"
+                                        )
+                                Just i ->
+                                    i
+                            text = if var then
+                                "    load r1, " ++
+                                    show slot ++
+                                    "\n    store_indirect r1, r0\n"
+                                else "    store " ++
+                                    show slot ++
+                                    ", r0\n"
+                        in
+                            case td of
+                                ArrayTypeDenoter _ ->
+                                    error "cannot put value into array"
+                                OrdinaryTypeDenoter tid' ->
+                                    if tid == tid' then text
+                                        else if tid == RealTypeIdentifier &&
+                                            tid' == IntegerTypeIdentifier then
+                                                "    int_to_real r1, r1" ++
+                                                    text
+                                                else error "unmatched type"
             in
                 (
                     label,
-                    "# assignment\n" ++ text ++ case va of
-                        IndexedVariableAccess iva ->
-                            undefined
-                        OrdinaryVariableAccess vid ->
-                            let
-                                (var, td, slot) = case Map.lookup vid table of
-                                    Nothing ->
-                                        error (
-                                            "variable " ++ vid ++ " undeclared"
-                                            )
-                                    Just i ->
-                                        i
-                                text = if var then
-                                    "    load r1, " ++
-                                        show slot ++
-                                        "\n    store_indirect r1, r0\n"
-                                    else "    store " ++
-                                        show slot ++
-                                        ", r0\n"
-                            in
-                                case td of
-                                    ArrayTypeDenoter _ ->
-                                        error "cannot put value into array"
-                                    OrdinaryTypeDenoter tid' ->
-                                        case (tid', tid) of
-                                            (
-                                                IntegerTypeIdentifier,
-                                                IntegerTypeIdentifier
-                                                ) ->
-                                                    text
-                                            (
-                                                RealTypeIdentifier,
-                                                RealTypeIdentifier
-                                                ) ->
-                                                    text
-                                            (
-                                                BooleanTypeIdentifier,
-                                                BooleanTypeIdentifier
-                                                ) ->
-                                                    text
-                                            (
-                                                RealTypeIdentifier,
-                                                IntegerTypeIdentifier
-                                                ) ->
-                                                    "    int_to_real r1, r1" ++
-                                                        text
-                                            otherwise ->
-                                                error "unmatched type"
+                    "# assignment\n" ++ text ++ text'
                     )
         ReadStatement rs ->
-            (
-                label,
-                let
-                    (_, table) = symbols
-                in
-                    "# read\n    call_builtin " ++ case rs of
-                        IndexedVariableAccess iva ->
-                            undefined
-                        OrdinaryVariableAccess vid ->
-                            let
-                                (var, td, slot) = case Map.lookup vid table of
-                                    Nothing ->
-                                        error (
-                                            "variable " ++ vid ++ " undeclared"
-                                            )
-                                    Just i ->
-                                        i
-                                t = case td of
-                                    ArrayTypeDenoter _ ->
-                                        error "cannot put value into array"
-                                    OrdinaryTypeDenoter tid ->
-                                        case tid of
-                                            IntegerTypeIdentifier ->
-                                                "read_int"
-                                            RealTypeIdentifier ->
-                                                "read_real"
-                                            BooleanTypeIdentifier ->
-                                                "read_bool"
-                            in
-                                if var then
-                                    undefined
-                                    else t ++ "\n    store " ++
-                                        show slot ++
-                                        ", r0\n"
-                )
+            let
+                (_, table) = symbols
+                text = case rs of
+                    IndexedVariableAccess (aid, e) ->
+                        let
+                            (tid, text) =
+                                compileExpression 1 symbols False e
+                            (var, td, slot) =
+                                if tid == IntegerTypeIdentifier then
+                                    case Map.lookup aid table of
+                                        Nothing ->
+                                            error (
+                                                "variable " ++
+                                                    aid ++
+                                                    " undeclared"
+                                                )
+                                        Just i ->
+                                            i
+                                    else
+                                        error "index must be integer"
+                            t = case td of
+                                ArrayTypeDenoter (st, tid) ->
+                                    case tid of
+                                        IntegerTypeIdentifier ->
+                                            "read_int"
+                                        RealTypeIdentifier ->
+                                            "read_real"
+                                        BooleanTypeIdentifier ->
+                                            "read_bool"
+                                    ++ "\n" ++ compileSubrangeType 1 st
+                                OrdinaryTypeDenoter _ ->
+                                    error (aid ++ " cannot be indexed")
+                            text' = if var then
+                                undefined
+                                else undefined
+                        in
+                            t ++ text'
+                    OrdinaryVariableAccess vid ->
+                        let
+                            (var, td, slot) = case Map.lookup vid table of
+                                Nothing ->
+                                    error (
+                                        "variable " ++ vid ++ " undeclared"
+                                        )
+                                Just i ->
+                                    i
+                            t = case td of
+                                ArrayTypeDenoter _ ->
+                                    error "cannot put value into array"
+                                OrdinaryTypeDenoter tid ->
+                                    case tid of
+                                        IntegerTypeIdentifier ->
+                                            "read_int"
+                                        RealTypeIdentifier ->
+                                            "read_real"
+                                        BooleanTypeIdentifier ->
+                                            "read_bool"
+                        in
+                            if var then
+                                undefined
+                                else t ++ "\n    store " ++
+                                    show slot ++
+                                    ", r0\n"
+            in
+                (label, "# read\n    call_builtin " ++ text)
         WriteStatement ws ->
             (
                 label,
                 let
                     (tid, text) = compileExpression 0 symbols False ws
                 in
-                    "# write\n" ++
+                    printComment "write" ++
                         text ++
-                        "    call_builtin " ++ case tid of
+                        printCallBuiltin (case tid of
                             IntegerTypeIdentifier ->
                                 "print_int"
                             RealTypeIdentifier ->
                                 "print_real"
                             BooleanTypeIdentifier ->
                                 "print_bool"
-                        ++ "\n"
+                            )
             )
         WriteStringStatement wss ->
             (
                 label,
-                "# write\n    string_const r0, '" ++ wss ++
-                    "'\n    call_builtin print_string\n"
+                printComment "write" ++
+                    printStringConst 0 wss ++
+                    printCallBuiltin "print_string"
                 )
         WritelnStatement ->
-            (label, "# writeln\n    call_builtin print_newline\n")
+            (label, printComment "writeln" ++ printCallBuiltin "print_newline")
         ProcedureStatement (pid, apl) ->
             (
                 label,
@@ -489,40 +670,35 @@ compileStatement label symbols s =
                     (ptable, _) = symbols
                     fpl = case Map.lookup pid ptable of
                         Nothing ->
-                            error ("procedure" ++ pid ++ "undeclared")
+                            error (printf "procedure %s undeclared" pid)
                         Just fpl ->
                             fpl
                     (_, text1) = compileActualParameterList 0 symbols fpl apl
                 in
-                    "# get actual parameters\n" ++
+                    printComment "get actual parameters" ++
                         text1 ++
-                        "# call procedure\n    call " ++
-                        pid ++
-                        "\n"
+                        printComment "call procedure" ++
+                        printCall pid
                 )
         CompoundStatement cs ->
             compileCompoundStatement label symbols cs
         IfStatement (e, s, ms) ->
             let
                 (td, text1) = compileExpression 0 symbols False e
-                (label', text2) = if td == BooleanTypeIdentifier then
-                    compileStatement label symbols s
-                    else error "if guard should be boolean expression"
-                text = "# if\n" ++
+                (label', text2) = if td == RealTypeIdentifier then
+                    error "if guard should be boolean expression"
+                    -- int value can be considered as boolean value
+                    else compileStatement label symbols s
+                text = printComment "if" ++
                     text1 ++
-                    "    branch_on_false r0, label" ++
-                    show label ++
-                    "\n" ++
+                    printBranchFalse 0 label ++
                     text2
             in
                 case ms of
                     Nothing ->
                         (
                             label' + 1,
-                            text ++
-                                "label" ++
-                                show label ++
-                                ":\n"
+                            text ++ printIntLabel label
                             )
                     -- have a else branch
                     Just s ->
@@ -533,42 +709,56 @@ compileStatement label symbols s =
                             (
                                 label'' + 1,
                                 text ++
-                                    "    branch_uncond label" ++
-                                    show label'' ++
-                                    "\nlabel" ++
-                                    show label ++
-                                    ":\n" ++
+                                    printBranchUncond label'' ++
+                                    printIntLabel label ++
                                     text3 ++
-                                    "label" ++
-                                    show label'' ++
-                                    ":\n"
+                                    printIntLabel label''
                                 )
         WhileStatement (e, s) ->
-            (
-                label + 2,
-                let
-                    label' = label + 1
-                    (td, text1) = compileExpression 0 symbols False e
-                    (_, text2) = if td == BooleanTypeIdentifier then
-                        compileStatement label' symbols s
-                        else error "while guard should be boolean expression"
-                in
-                    "# while\nlabel" ++
-                        show label ++
-                        ":\n" ++
+            let
+                label' = label + 1
+                (tid, text1) = compileExpression 0 symbols False e
+                (label'', text2) = if tid == RealTypeIdentifier then
+                    error "while guard should be boolean expression"
+                    -- int value can be considered as boolean value
+                    else compileStatement label' symbols s
+            in
+                (
+                    label'' + 1,
+                    printComment "while" ++
                         text1 ++
-                        "    branch_on_false r0, label" ++
-                        show label' ++
-                        "\n" ++
+                        printBranchFalse 0 label' ++
+                        printIntLabel label ++
                         text2 ++
-                        "    branch_uncond label" ++
-                        show label ++
-                        "\nlabel" ++
-                        show label' ++
-                        ":\n"
-            )
-        ForStatement fs ->
-            undefined
+                        text1 ++
+                        printBranchTrue 0 label ++
+                        printIntLabel label'
+                    )
+        ForStatement (fid, e1, d, e2, s) ->
+            let
+                (tid1, text1) = compileExpression 0 symbols False e1
+                (tid2, text2) = if tid1 == IntegerTypeIdentifier then
+                    compileExpression 1 symbols False e2
+                    else error "the lower bound of for loop must be integer"
+                label' = label + 1
+                (label'', text3) = compileStatement label' symbols s
+            in
+                (
+                    label'' + 1,
+                    "# for\n" ++
+                        text1 ++
+                        text2 ++
+                        "    move r2, r0" ++
+                        "    cmp_gt_int r3, r2, r1\n" ++
+                        "    branch_on_false r3, l" ++ show label' ++ "\n" ++
+                        "l" ++ show label ++ ":\n" ++
+                        text3 ++
+                        "    int_const r3, 1\n" ++
+                        "    add_int r2, r2, r3\n" ++
+                        "    cmp_gt_int r3, r2, r1\n" ++
+                        "    branch_on_true r3, l" ++ show label ++ "\n" ++
+                        "l" ++ show label' ++ ":\n"
+                    )
         EmptyStatement ->
             (label, "")
 
@@ -594,267 +784,195 @@ compileActualParameterList slot symbols ((var, td):xs) (y:ys) =
     in
         (slot', text ++ text1)
 
+compileArrayType ::
+    Int -> Int -> Symbols -> ASTExpression -> ASTArrayType
+        -> (ASTTypeIdentifier, String)
+compileArrayType slot reg symbols e (st, tid) =
+    let
+        r0 = reg
+        r1 = reg + 1
+        r2 = reg + 2
+        r3 = reg + 3
+        r4 = reg + 4
+        -- expression as the index
+        (tid', text) = compileExpression r0 symbols False e
+    in
+        if tid' == IntegerTypeIdentifier then
+            (
+                tid,
+                "# array\n" ++
+                    text ++
+                    compileSubrangeType r1 st ++
+                    "# check boundaries\n" ++
+                    -- runtime lower bound check
+                    printf "    cmp_lt_int r%d, r%d, r%d\n" r4 r1 r2 ++
+                    printf "    branch_on_true r%d, __Exception\n" r4 ++
+                    -- runtime upper bound check
+                    printf "    cmp_gt_int r%d, r%d, r%d\n" r4 r1 r3 ++
+                    printf "    branch_on_true r%d, __Exception\n" r4 ++
+                    "# get offset\n" ++
+                    printf "    sub_int r%d, r%d, r%d\n" r1 r1 r2 ++
+                    -- load the address and add offset
+                    "    load_address r2, " ++ show slot ++
+                    "\n    add_offset r2, r2, r1\n" ++
+                    "    store_indirect r2, r0\n"
+                )
+            else error "array index must be integer"
+
+compileSubrangeType :: Int -> ASTSubrangeType -> String
+compileSubrangeType reg (lo, hi) =
+    "    int_const r" ++
+        show reg ++
+        ", " ++
+        show lo ++
+        "\n    int_const r" ++
+        show (reg + 1) ++
+        ", " ++
+        show hi ++
+        "\n"
+
 compileExpression ::
     Int -> Symbols -> Bool -> ASTExpression -> (ASTTypeIdentifier, String)
-compileExpression reg symbols var e = case e of
-    EqualExpression se1 se2 ->
-        let
-            reg' = reg + 1
-            (td1, text1) = compileSimpleExpression reg symbols var se1
-            (td2, text2) = compileSimpleExpression reg' symbols var se2
-            r1 = case td1 of
-                IntegerTypeIdentifier ->
-                    False
-                RealTypeIdentifier ->
-                    True
-                BooleanTypeIdentifier ->
-                    error "cannot compare boolean value"
-            r2 = case td2 of
-                IntegerTypeIdentifier ->
-                    False
-                RealTypeIdentifier ->
-                    True
-                BooleanTypeIdentifier ->
-                    error "cannot compare boolean value"
-            r = if r1 || r2 then True else False
-        in
-            (
-                BooleanTypeIdentifier,
-                text1 ++ text2 ++
-                    if r then "    cmp_eq_real r" else "    cmp_eq_int r" ++
-                    show reg ++ ", r" ++ show reg ++ ", r" ++ show reg' ++ "\n"
-                )
-    NotEqualExpression se1 se2 ->
-        undefined
-    LessThanExpression se1 se2 ->
-        let
-            reg' = reg + 1
-            (td1, text1) = compileSimpleExpression reg symbols var se1
-            (td2, text2) = compileSimpleExpression reg' symbols var se2
-            r1 = case td1 of
-                IntegerTypeIdentifier ->
-                    False
-                RealTypeIdentifier ->
-                    True
-                BooleanTypeIdentifier ->
-                    error "cannot compare boolean value"
-            r2 = case td2 of
-                IntegerTypeIdentifier ->
-                    False
-                RealTypeIdentifier ->
-                    True
-                BooleanTypeIdentifier ->
-                    error "cannot compare boolean value"
-            r = if r1 || r2 then True else False
-        in
-            (
-                BooleanTypeIdentifier,
-                text1 ++ text2 ++
-                    if r then "    cmp_lt_real r" else "    cmp_lt_int r" ++
-                    show reg ++ ", r" ++ show reg ++ ", r" ++ show reg' ++ "\n"
-                )
-    GreaterThanExpression se1 se2 ->
-        let
-            reg' = reg + 1
-            (td1, text1) = compileSimpleExpression reg symbols var se1
-            (td2, text2) = compileSimpleExpression reg' symbols var se2
-            r1 = case td1 of
-                IntegerTypeIdentifier ->
-                    False
-                RealTypeIdentifier ->
-                    True
-                BooleanTypeIdentifier ->
-                    error "cannot compare boolean value"
-            r2 = case td2 of
-                IntegerTypeIdentifier ->
-                    False
-                RealTypeIdentifier ->
-                    True
-                BooleanTypeIdentifier ->
-                    error "cannot compare boolean value"
-            r = if r1 || r2 then True else False
-        in
-            (
-                BooleanTypeIdentifier,
-                text1 ++ text2 ++
-                    if r then "    cmp_gt_real r" else "    cmp_gt_int r" ++
-                    show reg ++ ", r" ++ show reg ++ ", r" ++ show reg' ++ "\n"
-                )
-    LessThanOrEqualExpression se1 se2 ->
-        undefined
-    GreaterThanOrEqualExpression se1 se2 ->
-        undefined
-    otherwise ->
-        compileSimpleExpression reg symbols var e
+compileExpression reg symbols ref e =
+    let
+        msesc = case e of
+            EqualExpression se1 se2 ->
+                Just (se1, se2, "eq")
+            NotEqualExpression se1 se2 ->
+                Just (se1, se2, "ne")
+            LessThanExpression se1 se2 ->
+                Just (se1, se2, "lt")
+            GreaterThanExpression se1 se2 ->
+                Just (se1, se2, "gt")
+            LessThanOrEqualExpression se1 se2 ->
+                Just (se1, se2, "le")
+            GreaterThanOrEqualExpression se1 se2 ->
+                Just (se1, se2, "ge")
+            otherwise ->
+                Nothing
+    in
+        case msesc of
+            Nothing ->
+                -- transfer to higher precedence
+                compileSimpleExpression reg symbols ref e
+            Just (se1, se2, c) ->
+                let
+                    reg' = reg + 1
+                    (td1, text1) = compileSimpleExpression reg symbols ref se1
+                    (td2, text2) = compileSimpleExpression reg' symbols ref se2
+                    -- allow expression such as (1 < 2) > (3 < 2) or
+                    -- True = 1
+                    r1 = case td1 of
+                        RealTypeIdentifier ->
+                            True
+                        otherwise ->
+                            False
+                    r2 = case td2 of
+                        RealTypeIdentifier ->
+                            True
+                        otherwise ->
+                            False
+                    (r, t) = if r1 || r2 then (True, "real") else (False, "int")
+
+                    -- convert if necessary
+                    text1' = text1 ++
+                        if r && not r1 then printInt2Real reg reg else ""
+                    text2' = text2 ++
+                        if r && not r2 then printInt2Real reg' reg' else ""
+                in
+                    (
+                        BooleanTypeIdentifier,
+                        text1' ++ text2' ++
+                            printCmp c t reg reg reg'
+                        )
 
 compileSimpleExpression ::
     Int -> Symbols -> Bool -> ASTSimpleExpression -> (ASTTypeIdentifier, String)
-compileSimpleExpression reg symbols var se = case se of
-    PlusExpression se t ->
-        let
-            reg' = reg + 1
-            (tid1, text1) = compileSimpleExpression reg symbols var se
-            (tid2, text2) = if tid1 == BooleanTypeIdentifier then
-                error "cannot be boolean value"
-                else compileTerm reg' symbols var t
-        in
-            if tid2 == BooleanTypeIdentifier then
-                error "cannot be boolean value"
-                else case (tid1, tid2) of
-                    (IntegerTypeIdentifier, IntegerTypeIdentifier) ->
-                        (
-                            IntegerTypeIdentifier,
-                            text1 ++
-                                text2 ++
-                                "    add_int r" ++
-                                show reg ++
-                                ", r" ++
-                                show reg ++
-                                ", r" ++
-                                show reg' ++
-                                "\n"
-                            )
-                    (RealTypeIdentifier, RealTypeIdentifier) ->
-                        (
-                            RealTypeIdentifier,
-                            text1 ++
-                                text2 ++
-                                "    add_real r" ++
-                                show reg ++
-                                ", r" ++
-                                show reg ++
-                                ", r" ++
-                                show reg' ++
-                                "\n"
-                            )
-                    (IntegerTypeIdentifier, RealTypeIdentifier) ->
-                        (
-                            RealTypeIdentifier,
-                            text1 ++
-                                "    int_to_real r" ++
-                                show reg ++
-                                ", r" ++
-                                show reg ++
-                                "\n" ++
-                                text2 ++
-                                "    add_real r" ++
-                                show reg ++
-                                ", r" ++
-                                show reg ++
-                                ", r" ++
-                                show reg' ++
-                                "\n"
-                            )
-                    (RealTypeIdentifier, IntegerTypeIdentifier) ->
-                        (
-                            RealTypeIdentifier,
-                            text1 ++
-                                text2 ++
-                                "    int_to_real r" ++
-                                show reg' ++
-                                ", r" ++
-                                show reg' ++
-                                "\n" ++
-                                "    add_real r" ++
-                                show reg ++
-                                ", r" ++
-                                show reg ++
-                                ", r" ++
-                                show reg' ++
-                                "\n"
-                            )
-    MinusExpression se t ->
-        let
-            reg' = reg + 1
-            (tid1, text1) = compileSimpleExpression reg symbols var se
-            (tid2, text2) = if tid1 == BooleanTypeIdentifier then
-                error "cannot be boolean value"
-                else compileTerm reg' symbols var t
-        in
-            if tid2 == BooleanTypeIdentifier then
-                error "cannot be boolean value"
-                else case (tid1, tid2) of
-                    (IntegerTypeIdentifier, IntegerTypeIdentifier) ->
-                        (
-                            IntegerTypeIdentifier,
-                            text1 ++
-                                text2 ++
-                                "    sub_int r" ++
-                                show reg ++
-                                ", r" ++
-                                show reg ++
-                                ", r" ++
-                                show reg' ++
-                                "\n"
-                            )
-                    (RealTypeIdentifier, RealTypeIdentifier) ->
-                        (
-                            RealTypeIdentifier,
-                            text1 ++
-                                text2 ++
-                                "    sub_real r" ++
-                                show reg ++
-                                ", r" ++
-                                show reg ++
-                                ", r" ++
-                                show reg' ++
-                                "\n"
-                            )
-                    (IntegerTypeIdentifier, RealTypeIdentifier) ->
-                        (
-                            RealTypeIdentifier,
-                            text1 ++
-                                "    int_to_real r" ++
-                                show reg ++
-                                ", r" ++
-                                show reg ++
-                                "\n" ++
-                                text2 ++
-                                "    sub_real r" ++
-                                show reg ++
-                                ", r" ++
-                                show reg ++
-                                ", r" ++
-                                show reg' ++
-                                "\n"
-                            )
-                    (RealTypeIdentifier, IntegerTypeIdentifier) ->
-                        (
-                            RealTypeIdentifier,
-                            text1 ++
-                                text2 ++
-                                "    int_to_real r" ++
-                                show reg' ++
-                                ", r" ++
-                                show reg' ++
-                                "\n" ++
-                                "    sub_real r" ++
-                                show reg ++
-                                ", r" ++
-                                show reg ++
-                                ", r" ++
-                                show reg' ++
-                                "\n"
-                            )
-    OrExpression se t ->
-        undefined
-    PosExpression t ->
-        undefined
-    NegExpression t ->
-        undefined
-    otherwise ->
-        compileTerm reg symbols var se
+compileSimpleExpression reg symbols ref se =
+    let
+        msetop = case se of
+            PlusExpression se t ->
+                Just (Just se ,t, "add")
+            MinusExpression se t ->
+                Just (Just se, t, "sub")
+            OrExpression se t ->
+                Just (Just se, t, "or")
+            PosExpression t ->
+                Just (Nothing, t, "pos")
+            NegExpression t ->
+                Just (Nothing, t, "neg")
+            otherwise ->
+                Nothing
+    in
+        case msetop of
+            Nothing ->
+                compileTerm reg symbols ref se
+            Just (mse, t, op) ->
+                case mse of
+                    Nothing ->
+                        let
+                            (tid, text) = compileTerm reg symbols ref t
+                            t' = case tid of
+                                RealTypeIdentifier ->
+                                    Just "real"
+                                otherwise ->
+                                    Just "int"
+                        in
+                            (
+                                tid,
+                                text ++ case op of
+                                    "pos" ->
+                                        ""
+                                    "neg" ->
+                                        printUnary op t' reg reg
+                                )
+                    Just se ->
+                        let
+                            reg' = reg + 1
+                            (tid1, text1) =
+                                compileSimpleExpression reg symbols ref se
+                            (tid2, text2) = compileTerm reg' symbols ref t
+                            r1 = case tid1 of
+                                RealTypeIdentifier ->
+                                    True
+                                otherwise ->
+                                    False
+                            r2 = case tid2 of
+                                RealTypeIdentifier ->
+                                    True
+                                otherwise ->
+                                    False
+                            (r, t') = if r1 || r2 then (True, "real")
+                                else (False, "int")
+                            -- convert if necessary
+                            text1' = text1 ++ if r && not r1 then
+                                printInt2Real reg reg
+                                else ""
+                            text2' = text2 ++ if r && not r2 then
+                                printInt2Real reg' reg'
+                                else ""
+                        in
+                            (
+                                if r then RealTypeIdentifier
+                                    else IntegerTypeIdentifier,
+                                text1' ++ text2' ++ case op of
+                                    "or" ->
+                                        printBinary op Nothing reg reg reg'
+                                    otherwise ->
+                                        printBinary op (Just t') reg reg reg'
+                                )
+
 
 compileTerm ::
     Int -> Symbols -> Bool -> ASTTerm -> (ASTTypeIdentifier, String)
-compileTerm reg symbols var t = case t of
+compileTerm reg symbols ref t = case t of
     TimesExpression t f ->
         let
             reg' = reg + 1
-            (tid1, text1) = compileTerm reg symbols var t
+            (tid1, text1) = compileTerm reg symbols ref t
             (tid2, text2) = if tid1 == BooleanTypeIdentifier then
                 error "cannot be boolean value"
-                else compileFactor reg' symbols var f
+                else compileFactor reg' symbols ref f
         in
             if tid2 == BooleanTypeIdentifier then
                 error "cannot be boolean value"
@@ -930,10 +1048,10 @@ compileTerm reg symbols var t = case t of
             IntegerTypeIdentifier,
             let
                 reg' = reg + 1
-                (tid1, text1) = compileTerm reg symbols var t
+                (tid1, text1) = compileTerm reg symbols ref t
                 (tid2, text2) = if tid1 == IntegerTypeIdentifier then
-                    compileFactor reg' symbols var f
-                    else error "both side should be integers"
+                    compileFactor reg' symbols ref f
+                    else error "both side should be integer"
             in
                 if tid2 == IntegerTypeIdentifier then
                     text1 ++
@@ -945,52 +1063,117 @@ compileTerm reg symbols var t = case t of
                         ", r" ++
                         show reg' ++
                         "\n"
-                    else error "both side should be integers"
+                    else error "both side should be integer"
             )
     AndExpression t f ->
-        undefined
+        let
+            (tid1, text1) = compileTerm reg symbols ref t
+            (tid2, text2) = if tid1 == BooleanTypeIdentifier then
+                compileFactor (reg + 1) symbols ref f
+                else error "both side should be boolean"
+        in
+            if tid2 == BooleanTypeIdentifier then
+                (
+                    BooleanTypeIdentifier,
+                    text1 ++
+                        text2 ++
+                        "    and r" ++
+                        show reg ++
+                        ", r" ++
+                        show reg ++
+                        ", r" ++
+                        show (reg + 1) ++
+                        "\n"
+                    )
+                else error "both side should be boolean"
     otherwise ->
-        compileFactor reg symbols var t
+        compileFactor reg symbols ref t
 
 compileFactor ::
     Int -> Symbols -> Bool -> ASTFactor -> (ASTTypeIdentifier, String)
-compileFactor reg symbols var f = case f of
-    UnsignedConstantExpression uc -> if var then
-        error "rvalue cannot be referenced"
-        else case uc of
-            UnsignedInteger i ->
-                (
-                    IntegerTypeIdentifier,
-                    "    int_const r" ++
-                        show reg ++
-                        ", " ++
-                        show i ++
-                        "\n"
-                    )
-            UnsignedReal r ->
-                (
-                    RealTypeIdentifier,
-                    "    real_const r" ++
-                        show reg ++
-                        ", " ++
-                        show r ++
-                        "\n"
-                    )
-            BooleanConstant b ->
-                "    int_const r" ++
-                    show reg ++
-                    ", " ++
-                    if b then "1" else "0" ++
-                    "\n"
+compileFactor reg symbols ref f = case f of
+    UnsignedConstantExpression uc ->
+        if ref then
+            error "rvalue cannot be referenced"
+            else case uc of
+                UnsignedInteger i ->
+                    (
+                        IntegerTypeIdentifier,
+                        "    int_const r" ++
+                            show reg ++
+                            ", " ++
+                            show i ++
+                            "\n"
+                        )
+                UnsignedReal r ->
+                    (
+                        RealTypeIdentifier,
+                        "    real_const r" ++
+                            show reg ++
+                            ", " ++
+                            show r ++
+                            "\n"
+                        )
+                BooleanConstant b ->
+                    (
+                        BooleanTypeIdentifier,
+                        "    int_const r" ++
+                            show reg ++
+                            ", " ++
+                            if b then "1" else "0" ++
+                            "\n"
+                        )
     VariableAccessExpression va ->
         let
             (_, table) = symbols
         in
             case va of
-                IndexedVariableAccess iva ->
-                    undefined
+                IndexedVariableAccess (aid, e) ->
+                    let
+                        (tid, text) =
+                            compileExpression 1 symbols False e
+                        (var, td, slot) =
+                            if tid == IntegerTypeIdentifier then
+                                case Map.lookup aid table of
+                                    Nothing ->
+                                        error (
+                                            "variable " ++
+                                                aid ++
+                                                " undeclared"
+                                            )
+                                    Just i ->
+                                        i
+                                else
+                                    error "index must be integer"
+                        text' = if var then
+                            undefined
+                            else "# check boundaries\n" ++
+                                "    cmp_lt_int r4, r1, r2\n" ++
+                                "    branch_on_true r4, __Exception\n" ++
+                                "    cmp_gt_int r4, r1, r3\n" ++
+                                "    branch_on_true r4, __Exception\n" ++
+                                "# get offset\n" ++
+                                "    sub_int r1, r1, r2\n" ++
+                                "    int_const r2, " ++ show slot ++ "\n" ++
+                                "    add_int r1, r1, r2\n"
+                    in
+                        case td of
+                            ArrayTypeDenoter (st, tid) ->
+                                (
+                                    tid,
+                                    text ++
+                                        compileSubrangeType 1 st ++
+                                        text' ++
+                                        if ref then
+                                            "    load_address r0, r1\n"
+                                            else "    load r0, r1\n"
+                                    )
+                            OrdinaryTypeDenoter _ ->
+                                error (aid ++ " cannot be indexed")
                 OrdinaryVariableAccess vid ->
                     let
+                        -- varness of the variable is unrelated to variable
+                        -- access
                         (_, td, slot) = case Map.lookup vid table of
                             Nothing ->
                                 error (
@@ -1004,7 +1187,8 @@ compileFactor reg symbols var f = case f of
                             OrdinaryTypeDenoter tid ->
                                 tid
                     in
-                        if var then
+                        -- decide if it needs the address
+                        if ref then
                             (
                                 tid,
                                 "    load_address r" ++
@@ -1024,4 +1208,4 @@ compileFactor reg symbols var f = case f of
     NotExpression f ->
         undefined
     otherwise ->
-        compileExpression reg symbols var f
+        compileExpression reg symbols ref f
