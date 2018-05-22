@@ -252,6 +252,7 @@ printDebugSlot = printActionInt "debug_slot"
 printDebugStack :: String
 printDebugStack = printAction "debug_stack"
 
+-- for exception handling
 printToException :: String -> Int -> String -> String
 printToException cond reg label =
     printActionRegString (printf "branch_%s" cond) reg label
