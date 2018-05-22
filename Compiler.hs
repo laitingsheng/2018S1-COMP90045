@@ -313,9 +313,15 @@ compileProgram (name, varDecls, procDecls, bodyStatement) =
             printPopStackFrame slot' ++
             printReturn ++
             -- handle runtime error
-            printComment "error handling" ++
-            printProcedureName "__Exception" ++
-            printStringConst 0 "an exception was thrown" ++
+            printComment "index" ++
+            printProcedureName "__IndexException" ++
+            printStringConst 0 "index out of bound" ++
+            printCallBuiltin "print_string" ++
+            printHalt ++
+            -- zero division
+            printComment "zero division" ++
+            printProcedureName "__ZeroDivException" ++
+            printStringConst 0 "0 cannot be the denominator" ++
             printCallBuiltin "print_string" ++
             printHalt
 
@@ -806,10 +812,10 @@ compileArrayType slot reg symbols e (st, tid) =
                     "# check boundaries\n" ++
                     -- runtime lower bound check
                     printf "    cmp_lt_int r%d, r%d, r%d\n" r4 r1 r2 ++
-                    printf "    branch_on_true r%d, __Exception\n" r4 ++
+                    printf "    branch_on_true r%d, __IndexException\n" r4 ++
                     -- runtime upper bound check
                     printf "    cmp_gt_int r%d, r%d, r%d\n" r4 r1 r3 ++
-                    printf "    branch_on_true r%d, __Exception\n" r4 ++
+                    printf "    branch_on_true r%d, __IndexException\n" r4 ++
                     "# get offset\n" ++
                     printf "    sub_int r%d, r%d, r%d\n" r1 r1 r2 ++
                     -- load the address and add offset
@@ -942,7 +948,10 @@ compileSimpleExpression reg symbols ref se =
                                     True
                                 otherwise ->
                                     False
-                            (r, t') = if r1 || r2 then (True, "real")
+                            (r, t') = if r1 || r2 then
+                                if op == "or" then
+                                    error "real value cannot be casted to bool"
+                                    else (True, "real")
                                 else (False, "int")
                             -- convert if necessary
                             text1' = text1 ++ if r && not r1 then
@@ -955,173 +964,100 @@ compileSimpleExpression reg symbols ref se =
                             (
                                 if r then RealTypeIdentifier
                                     else IntegerTypeIdentifier,
-                                text1' ++ text2' ++ case op of
-                                    "or" ->
-                                        printBinary op Nothing reg reg reg'
-                                    otherwise ->
-                                        printBinary op (Just t') reg reg reg'
+                                text1' ++ text2' ++ if op == "or" then
+                                    printBinary op Nothing reg reg reg'
+                                    else printBinary op (Just t') reg reg reg'
                                 )
 
 
 compileTerm ::
     Int -> Symbols -> Bool -> ASTTerm -> (ASTTypeIdentifier, String)
-compileTerm reg symbols ref t = case t of
-    TimesExpression t f ->
-        let
-            reg' = reg + 1
-            (tid1, text1) = compileTerm reg symbols ref t
-            (tid2, text2) = if tid1 == BooleanTypeIdentifier then
-                error "cannot be boolean value"
-                else compileFactor reg' symbols ref f
-        in
-            if tid2 == BooleanTypeIdentifier then
-                error "cannot be boolean value"
-                else case (tid1, tid2) of
-                    (IntegerTypeIdentifier, IntegerTypeIdentifier) ->
-                        (
-                            IntegerTypeIdentifier,
-                            text1 ++
-                                text2 ++
-                                "    mul_int r" ++
-                                show reg ++
-                                ", r" ++
-                                show reg ++
-                                ", r" ++
-                                show reg' ++
-                                "\n"
-                            )
-                    (RealTypeIdentifier, RealTypeIdentifier) ->
-                        (
-                            RealTypeIdentifier,
-                            text1 ++
-                                text2 ++
-                                "    mul_real r" ++
-                                show reg ++
-                                ", r" ++
-                                show reg ++
-                                ", r" ++
-                                show reg' ++
-                                "\n"
-                            )
-                    (IntegerTypeIdentifier, RealTypeIdentifier) ->
-                        (
-                            RealTypeIdentifier,
-                            text1 ++
-                                "    int_to_real r" ++
-                                show reg ++
-                                ", r" ++
-                                show reg ++
-                                "\n" ++
-                                text2 ++
-                                "    mul_real r" ++
-                                show reg ++
-                                ", r" ++
-                                show reg ++
-                                ", r" ++
-                                show reg' ++
-                                "\n"
-                            )
-                    (RealTypeIdentifier, IntegerTypeIdentifier) ->
-                        (
-                            RealTypeIdentifier,
-                            text1 ++
-                                text2 ++
-                                "    int_to_real r" ++
-                                show reg' ++
-                                ", r" ++
-                                show reg' ++
-                                "\n" ++
-                                "    mul_real r" ++
-                                show reg ++
-                                ", r" ++
-                                show reg ++
-                                ", r" ++
-                                show reg' ++
-                                "\n"
-                            )
-                    otherwise ->
-                        error "invalid type"
-    DivideByExpression t f ->
-        undefined
-    DivExpression t f ->
-        (
-            IntegerTypeIdentifier,
-            let
-                reg' = reg + 1
-                (tid1, text1) = compileTerm reg symbols ref t
-                (tid2, text2) = if tid1 == IntegerTypeIdentifier then
-                    compileFactor reg' symbols ref f
-                    else error "both side should be integer"
-            in
-                if tid2 == IntegerTypeIdentifier then
-                    text1 ++
-                        text2 ++
-                        "    div_int r" ++
-                        show reg ++
-                        ", r" ++
-                        show reg ++
-                        ", r" ++
-                        show reg' ++
-                        "\n"
-                    else error "both side should be integer"
-            )
-    AndExpression t f ->
-        let
-            (tid1, text1) = compileTerm reg symbols ref t
-            (tid2, text2) = if tid1 == BooleanTypeIdentifier then
-                compileFactor (reg + 1) symbols ref f
-                else error "both side should be boolean"
-        in
-            if tid2 == BooleanTypeIdentifier then
-                (
-                    BooleanTypeIdentifier,
-                    text1 ++
-                        text2 ++
-                        "    and r" ++
-                        show reg ++
-                        ", r" ++
-                        show reg ++
-                        ", r" ++
-                        show (reg + 1) ++
-                        "\n"
-                    )
-                else error "both side should be boolean"
-    otherwise ->
-        compileFactor reg symbols ref t
+compileTerm reg symbols ref t =
+    let
+        mtfop = case t of
+            TimesExpression t f ->
+                Just (t, f, "mul")
+            DivideByExpression t f ->
+                Just (t, f, "div_real")
+            DivExpression t f ->
+                Just (t, f, "div_int")
+            AndExpression t f ->
+                Just (t, f, "and")
+            otherwise ->
+                Nothing
+    in
+        case mtfop of
+            Nothing ->
+                compileFactor reg symbols ref t
+            Just (t, f, op) ->
+                let
+                    reg' = reg + 1
+                    (tid1, text1) = compileTerm reg symbols ref t
+                    (tid2, text2) = compileFactor reg' symbols ref f
+
+                    -- may not be evaluated
+                    r1 = case tid1 of
+                        RealTypeIdentifier ->
+                            True
+                        otherwise ->
+                            False
+                    r2 = case tid2 of
+                        RealTypeIdentifier ->
+                            True
+                        otherwise ->
+                            False
+                    (r, t') = if r1 || r2 then (True, "real")
+                        else (False, "int")
+                    -- convert if necessary
+                    text1' = text1 ++ if op == "div_real" || r && not r1 then
+                        printInt2Real reg reg
+                        else ""
+                    text2' = text2 ++ if op == "div_real" || r && not r2 then
+                        printInt2Real reg' reg'
+                        else ""
+                in
+                    if op == "div_int" || op == "and" then
+                        if tid1 == RealTypeIdentifier ||
+                            tid2 == RealTypeIdentifier then
+                                error "both sides cannot be real value"
+                                else (
+                                    if op == "and" then BooleanTypeIdentifier
+                                        else IntegerTypeIdentifier,
+                                    text1' ++ text2' ++
+                                        printBinary op Nothing reg reg reg'
+                                    )
+                        else if op == "div_real" then
+                            (
+                                RealTypeIdentifier,
+                                text1' ++ text2' ++
+                                    printBinary op Nothing reg reg reg'
+                                )
+                            else if op == "mul" then
+                                (
+                                    if r then RealTypeIdentifier
+                                        else IntegerTypeIdentifier,
+                                    text1' ++ text2' ++
+                                        printBinary op (Just t') reg reg reg'
+                                    )
+                                else error "internal error"
 
 compileFactor ::
     Int -> Symbols -> Bool -> ASTFactor -> (ASTTypeIdentifier, String)
 compileFactor reg symbols ref f = case f of
     UnsignedConstantExpression uc ->
         if ref then
+            -- these are rvalues
             error "rvalue cannot be referenced"
             else case uc of
                 UnsignedInteger i ->
-                    (
-                        IntegerTypeIdentifier,
-                        "    int_const r" ++
-                            show reg ++
-                            ", " ++
-                            show i ++
-                            "\n"
-                        )
+                    (IntegerTypeIdentifier, printIntConst reg i)
                 UnsignedReal r ->
-                    (
-                        RealTypeIdentifier,
-                        "    real_const r" ++
-                            show reg ++
-                            ", " ++
-                            show r ++
-                            "\n"
-                        )
+                    (RealTypeIdentifier, printRealConst reg r)
                 BooleanConstant b ->
                     (
                         BooleanTypeIdentifier,
-                        "    int_const r" ++
-                            show reg ++
-                            ", " ++
-                            if b then "1" else "0" ++
-                            "\n"
+                        -- cast boolean value to integer
+                        printIntConst reg (if b then 1 else 0)
                         )
     VariableAccessExpression va ->
         let
