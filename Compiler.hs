@@ -503,26 +503,24 @@ compileStatement label symbols s =
         AssignmentStatement (va, e) ->
             let
                 (ref, tid1, (n, t)) = compileVariableAccess 0 symbols va
-                (tid2, text2) = compileExpression 1 symbols False e
+                -- determine if r0 is occupied by an address
+                reg = if ref then 1 else 0
+                (tid2, text2) = compileExpression reg symbols False e
 
                 -- may not be evaluated, apply conversion if appropriate
-                conversion = printInt2Real 1 1
+                conversion = if tid1 == tid2 then ""
+                    else if tid1 == RealTypeIdentifier &&
+                        tid2 == IntegerTypeIdentifier then printInt2Real reg reg
+                        else error "type mismatch"
             in
                 (
                     label,
-                    if tid1 == tid2 then printComment "assign" ++
-                        if ref then t ++
-                            text2 ++
-                            printStoreIndirect 0 1
-                            else text2 ++ printStore n 1
-                        else if tid1 == RealTypeIdentifier &&
-                            tid2 == IntegerTypeIdentifier then
-                                if ref then t ++
-                                    text2 ++
-                                    conversion ++
-                                    printStoreIndirect 0 1
-                                    else text2 ++ conversion ++ printStore n 1
-                                else error "type mismatch"
+                    printComment "assign" ++
+                        t ++
+                        text2 ++
+                        conversion ++
+                        (if ref then printStoreIndirect
+                            else printStore) n reg
                     )
         ReadStatement va ->
             let
@@ -541,8 +539,8 @@ compileStatement label symbols s =
                                     "read_bool"
                             ) ++
                         t ++
-                        if ref then printStoreIndirect 1 0
-                            else printStore n 0
+                        (if ref then printStoreIndirect
+                            else printStore) n 0
                     )
         WriteStatement ws ->
             (
@@ -596,17 +594,17 @@ compileStatement label symbols s =
                     error "if guard should be boolean expression"
                     -- int value can be considered as boolean value
                     else compileStatement label symbols s
-                text = printComment "if branch" ++
-                    text1 ++
-                    printBranchFalse 0 label ++
-                    text2
+                text = printComment "if branch" ++ text1
             in
                 -- determine if there is an else statement
                 case ms of
                     Nothing ->
                         (
                             label' + 1,
-                            text ++ printIntLabel label
+                            text ++
+                                printBranchFalse 0 label' ++
+                                text2 ++
+                                printIntLabel label'
                             )
                     -- have a else branch
                     Just s ->
@@ -617,22 +615,23 @@ compileStatement label symbols s =
                             (
                                 label'' + 1,
                                 text ++
+                                    printBranchFalse 0 label' ++
+                                    text2 ++
                                     printBranchUncond label'' ++
-                                    printIntLabel label ++
+                                    printIntLabel label' ++
                                     text3 ++
                                     printIntLabel label''
                                 )
         WhileStatement (e, s) ->
             let
-                label' = label + 1
                 (tid, text1) = compileExpression 0 symbols False e
-                (label'', text2) = if tid /= BooleanTypeIdentifier then
+                (label', text2) = if tid /= BooleanTypeIdentifier then
                     error "while guard should be boolean expression"
                     -- int value can be considered as boolean value
-                    else compileStatement label' symbols s
+                    else compileStatement (label + 1) symbols s
             in
                 (
-                    label'' + 1,
+                    label' + 1,
                     printComment "while loop" ++
                         text1 ++
                         printBranchFalse 0 label' ++
@@ -645,29 +644,45 @@ compileStatement label symbols s =
         ForStatement (fid, e1, d, e2, s) ->
             let
                 (tid1, text1) = compileExpression 0 symbols False e1
-                (tid2, text2) = if tid1 == IntegerTypeIdentifier then
-                    compileExpression 1 symbols False e2
-                    else error "the lower bound of for loop must be integer"
-                label' = if tid2 == IntegerTypeIdentifier then label + 1
-                    else error "the upper bound of for loop must be integer"
-                (label'', text3) = compileStatement label' symbols s
+                (tid2, text2) = compileExpression 1 symbols False e2
+                (label'', text3) = compileStatement (label + 1) symbols s
+                (ref, tid, (n, t)) =
+                    compileVariableAccess 2 symbols (OrdinaryVariableAccess fid)
+                (g, ac) = case d of
+                    ForDirectionUp ->
+                        (printCmp "gt" "int" 0 0 1, "add")
+                    ForDirectionDown ->
+                        (printCmp "lt" "int" 0 0 1, "sub")
             in
-                (
-                    label'' + 1,
-                    printComment "for loop" ++
-                        text1 ++
-                        text2 ++
-                        "    move r2, r0" ++
-                        "    cmp_gt_int r3, r2, r1\n" ++
-                        "    branch_on_false r3, l" ++ show label' ++ "\n" ++
-                        "l" ++ show label ++ ":\n" ++
-                        text3 ++
-                        "    int_const r3, 1\n" ++
-                        "    add_int r2, r2, r3\n" ++
-                        "    cmp_gt_int r3, r2, r1\n" ++
-                        "    branch_on_true r3, l" ++ show label ++ "\n" ++
-                        "l" ++ show label' ++ ":\n"
-                    )
+                if tid == IntegerTypeIdentifier &&
+                    tid1 == IntegerTypeIdentifier &&
+                    tid2 == IntegerTypeIdentifier then
+                        (
+                            label'' + 1,
+                            printComment "for loop" ++
+                                text1 ++
+                                t ++
+                                (if ref then printStoreIndirect else printStore)
+                                    n 0 ++
+                                text2 ++
+                                g ++
+                                printBranchTrue 0 label'' ++
+                                printIntLabel label ++
+                                text3 ++
+                                t ++
+                                (if ref then printLoadIndirect else printLoad)
+                                    0 n ++
+                                printIntConst 1 1 ++
+                                printBinary ac (Just "int") 0 0 1 ++
+                                t ++
+                                (if ref then printStoreIndirect else printStore)
+                                    n 0 ++
+                                text2 ++
+                                g ++
+                                printBranchFalse 0 label ++
+                                printIntLabel label''
+                            )
+                    else error "boundaries and variable must be integer type"
         EmptyStatement ->
             (label, "")
 
@@ -745,7 +760,7 @@ compileArrayType slot reg symbols e ((lo, hi), tid) =
                     printBinary "sub" (Just "int") r0 r0 r1 ++
                     -- load the address and add offset
                     printLoadAddress r1 slot ++
-                    printBinary "add" (Just "offset") r0 r1 r0
+                    printBinary "sub" (Just "offset") r0 r1 r0
                 )
             else error "array index must be integer"
 
@@ -1044,17 +1059,25 @@ compileFactor reg symbols ref f = case f of
                         )
     VariableAccessExpression va ->
         let
-            (ref', tid, (n, t)) = compileVariableAccess (reg + 1) symbols va
+            (ref', tid, (n, t)) = compileVariableAccess reg symbols va
         in
             (
                 tid,
                 if ref then
                     if ref' then t
                         else printLoadAddress reg n
-                    else if ref' then t ++ printLoadIndirect reg n
+                    else if ref' then t ++ printLoadIndirect reg reg
                         else printLoad reg n
                 )
     NotExpression f ->
-        undefined
+        let
+            (tid, text) = compileFactor reg symbols ref f
+        in
+            (
+                BooleanTypeIdentifier,
+                if tid == BooleanTypeIdentifier then text ++
+                    printUnary "not" Nothing reg reg
+                    else error "negating a non-boolean value"
+                )
     otherwise ->
         compileExpression reg symbols ref f
