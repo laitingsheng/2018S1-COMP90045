@@ -2,6 +2,8 @@ make
 mkdir -p output
 rm -f output/*.err output/*.diff
 
+match=true
+
 for k in $(find . -name "*.out")
 do
     j=${k%.out}
@@ -12,6 +14,7 @@ do
     then
         echo "    no warnings"
     else
+        match=false
         echo "    fail to compile"
         echo
         continue
@@ -27,7 +30,13 @@ do
     then
         echo "    matched"
     else
+        match=false
         echo "    unmatched"
     fi
     echo
 done
+
+if [ $match ]
+then
+    echo "all matched"
+fi

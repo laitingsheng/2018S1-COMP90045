@@ -4,6 +4,7 @@ output/**
 .trace
 Paz
 taz
+test.paz
 test.taz
 ltaz.c
 ptaz.c

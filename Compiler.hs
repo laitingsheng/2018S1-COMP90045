@@ -1,5 +1,7 @@
 -- Compiler for Paz, a subset of programming language Pascal
 -- Tingsheng Lai 781319
+--     zero division detection added
+--     index out of bound detection added
 
 module Compiler where
 
@@ -157,7 +159,7 @@ import PazParser (
     )
 import Text.Printf
 
--- for ease of printing
+-- for ease of printing and formatting
 printIndent :: String
 printIndent = "    "
 
@@ -266,10 +268,8 @@ compileStartSymbol :: ASTStartSymbol -> String
 compileStartSymbol =
     compileProgram
 
--- the following is a suggestion for how you can maintain the symbol table,
--- the symbol information for procedures and for variables is kept separate
--- (although this isn't a requirement, they can share the same name space
--- if you wish), and put in a pair to make it easy to pass around everywhere
+-- the first element is the variables in current scope, and the second is a list
+-- of lists of formal parameters of different procedures
 type Symbols =
     (
         -- for each procedure, for each formal parameter, its varness and type
@@ -279,11 +279,7 @@ type Symbols =
         Map String (Bool, ASTTypeDenoter, Int)
         )
 
--- the following is a suggestion for how your compiler can be structured,
--- there is no requirement to follow this template but it shows how the
--- important information (such as current label number) can be threaded
--- through the functions that implement the various parts of the compiler
--- (the more advanced students might wish to use a state monad for this)
+-- the entry point
 compileProgram :: ASTProgram -> String
 compileProgram (name, varDecls, procDecls, bodyStatement) =
     let
@@ -305,11 +301,7 @@ compileProgram (name, varDecls, procDecls, bodyStatement) =
         (label'', bodyText) =
             compileCompoundStatement label' symbols'' bodyStatement
     in
-        "# " ++
-            printTokenProgram ++
-            " " ++
-            printIdentifier name ++
-            "\n" ++
+        printComment (printf "%s %s" printTokenProgram name) ++
             printCall "main" ++
             printHalt ++
             procText ++
@@ -434,13 +426,9 @@ compileProcedureDeclaration ::
     Int -> Symbols -> ASTProcedureDeclaration -> (Int, String)
 compileProcedureDeclaration label symbols (pid, fpl, vdp, cs) =
     let
-        -- the program variables are isolated from the procedure variables
-        (ptable, _) = symbols
-        symbols' = (ptable, Map.empty)
-
-        (slot, symbols'', text1) = compileFormalParameterList 0 symbols' fpl
-        (slot', symbols''') = compileVariableDeclarationPart slot symbols'' vdp
-        (label', text2) = compileCompoundStatement label symbols''' cs
+        (slot, symbols', text1) = compileFormalParameterList 0 symbols fpl
+        (slot', symbols'') = compileVariableDeclarationPart slot symbols' vdp
+        (label', text2) = compileCompoundStatement label symbols'' cs
     in
         (
             label',
@@ -701,13 +689,12 @@ compileVariableAccess reg symbols va =
                             error (printf "variable %s undeclared" aid)
                         Just i ->
                             i
+                    (tid', t) = compileExpression reg symbols False e
                     (tid, text) = case td of
                         OrdinaryTypeDenoter _ ->
                             error (printf "%s is not an array" aid)
                         ArrayTypeDenoter at ->
-                            if var then
-                                undefined
-                                else compileArrayType slot reg symbols e at
+                            compileArrayType slot var reg symbols e at
                 in
                     (True, tid, (reg, text))
             OrdinaryVariableAccess vid ->
@@ -720,7 +707,7 @@ compileVariableAccess reg symbols va =
                 in
                     case td of
                         ArrayTypeDenoter _ ->
-                            error "cannot assign to the array"
+                            error "cannot assign to the whole array"
                         OrdinaryTypeDenoter tid ->
                             (
                                 var,
@@ -730,9 +717,9 @@ compileVariableAccess reg symbols va =
                                 )
 
 compileArrayType ::
-    Int -> Int -> Symbols -> ASTExpression -> ASTArrayType
+    Int -> Bool -> Int -> Symbols -> ASTExpression -> ASTArrayType
         -> (ASTTypeIdentifier, String)
-compileArrayType slot reg symbols e ((lo, hi), tid) =
+compileArrayType slot ref reg symbols e ((lo, hi), tid) =
     let
         r0 = reg
         r1 = reg + 1
@@ -758,8 +745,7 @@ compileArrayType slot reg symbols e ((lo, hi), tid) =
                     printToException "on_true" r3 "__IndexException" ++
                     printComment "get offset" ++
                     printBinary "sub" (Just "int") r0 r0 r1 ++
-                    -- load the address and add offset
-                    printLoadAddress r1 slot ++
+                    (if ref then printLoad else printLoadAddress) r1 slot ++
                     printBinary "sub" (Just "offset") r0 r1 r0
                 )
             else error "array index must be integer"
@@ -976,6 +962,7 @@ compileTerm reg symbols ref t =
             Just (t, f, op) ->
                 let
                     reg' = reg + 1
+                    reg'' = reg + 2
                     (tid1, text1) = compileTerm reg symbols ref t
                     (tid2, text2) = compileFactor reg' symbols ref f
 
@@ -1022,13 +1009,23 @@ compileTerm reg symbols ref t =
                                         IntegerTypeIdentifier,
                                         text1 ++
                                             text2 ++
+                                            printIntConst reg'' 0 ++
+                                            printCmp "eq" "int" reg'' reg'
+                                                reg'' ++
+                                            printToException "on_true" reg''
+                                                "__ZeroDivException" ++
                                             printBinary op Nothing reg reg reg'
                                         )
                                     else  error "both sides must be integer"
                         "div_real" ->
                             (
                                 RealTypeIdentifier,
-                                text1' ++ text2' ++
+                                text1' ++
+                                    text2' ++
+                                    printRealConst reg'' 0 ++
+                                    printCmp "eq" "real" reg'' reg' reg'' ++
+                                    printToException "on_true" reg''
+                                        "__ZeroDivException" ++
                                     printBinary op Nothing reg reg reg'
                                 )
                         "mul" ->
