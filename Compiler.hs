@@ -442,18 +442,20 @@ compileProcedureDeclaration ::
 compileProcedureDeclaration label symbols (pid, fpl, vdp, cs) =
     (
         label',
-        printComment ("procedure " ++ pid) ++
+        printComment (printf "<%s %s>" printTokenProcedure pid) ++
             printProcedureName pid ++
             -- push a new stack frame for the current procedure
             printPushStackFrame slot' ++
             -- first parse the parameter list
-            printComment "store parameters" ++
+            printComment "<store parameters>" ++
             text1 ++
+            printComment "</store parameters>" ++
             -- parse all statements
             text2 ++
             -- pop the current stack frame
             printPopStackFrame slot' ++
-            printReturn
+            printReturn ++
+            printComment (printf "</%s %s>" printTokenProcedure pid)
         )
     where
         (slot, symbols', text1) = compileFormalParameterList 0 symbols fpl
