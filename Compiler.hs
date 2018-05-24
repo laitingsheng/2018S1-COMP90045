@@ -759,7 +759,7 @@ compileVariableAccess reg symbols va =
             case td of
                 -- allow to pass a whole array
                 ArrayTypeDenoter _ ->
-                    undefined
+                    error "getting a whole array is not supported yet"
                 OrdinaryTypeDenoter tid ->
                     (
                         var,
@@ -830,7 +830,7 @@ compileActualParameterList slot symbols ((var, td):xs) (y:ys) =
         text ++
             case td of
                 ArrayTypeDenoter _ ->
-                    undefined
+                    error "array type in procedure are not supported yet"
                 OrdinaryTypeDenoter ftid ->
                     if ftid == atid then ""
                         else if ftid == RealTypeIdentifier &&
